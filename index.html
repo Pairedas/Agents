@@ -365,7 +365,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 </head>
 <body>
 
-<!-- PIN -->
 <div class="pin-screen" id="pinScreen">
   <div class="pin-logo-wrap">
     <div class="pin-logo">💰</div>
@@ -394,7 +393,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
   </div>
 </div>
 
-<!-- APP -->
 <div class="app" id="app">
   <div class="topbar">
     <div class="tb-brand">
@@ -412,13 +410,10 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
   <div class="tbar" id="tBar"></div>
   <div class="content">
 
-    <!-- HOME -->
     <div class="page on" id="pg-home"><div id="homeBody"></div></div>
 
-    <!-- SAISIE -->
     <div class="page" id="pg-saisie"><div id="saisieBody"></div></div>
 
-    <!-- HISTORIQUE -->
     <div class="page" id="pg-hist">
       <div id="histStats"></div>
       <div class="ptabs" id="histTabs">
@@ -437,7 +432,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
       <div id="histBody"></div>
     </div>
 
-    <!-- RECHARGE -->
     <div class="page" id="pg-rech">
       <div class="sh" style="margin-bottom:14px">
         <h3>🔄 Rechargements</h3>
@@ -447,7 +441,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
       <div id="rechList"></div>
     </div>
 
-    <!-- SURPLUS -->
     <div class="page" id="pg-surplus">
       <div class="surp-hero">
         <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--purple);font-weight:700;margin-bottom:6px">⚡ Calculateur de Surplus</div>
@@ -463,13 +456,11 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
       <div id="surplusList"></div>
     </div>
 
-    <!-- DÉPENSES -->
     <div class="page" id="pg-dep">
       <div class="sh" style="margin-bottom:14px">
         <h3>💸 Dépenses</h3>
         <span class="sh-link" onclick="openModal('modalDep')">+ Ajouter</span>
       </div>
-      <!-- Quick prise perso button -->
       <div style="background:linear-gradient(135deg,rgba(255,77,109,0.08),rgba(177,151,252,0.08));border:1px solid rgba(255,77,109,0.2);border-radius:var(--r12);padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
         <div>
           <div style="font-size:12px;font-weight:700;color:var(--red2)">👤 Prise personnelle</div>
@@ -497,7 +488,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
       <div id="depList"></div>
     </div>
 
-    <!-- STATS -->
     <div class="page" id="pg-stats">
       <div class="sh" style="margin-bottom:14px">
         <h3>📊 Statistiques</h3>
@@ -506,7 +496,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
       <div id="statsBody"></div>
     </div>
 
-    <!-- CONFIG -->
     <div class="page" id="pg-cfg"><div id="cfgBody"></div></div>
 
   </div>
@@ -522,7 +511,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
   </div>
 </div>
 
-<!-- MODALS -->
 <div class="modal-ov" id="modalObjectif" onclick="modalOvClick(event,'modalObjectif')">
   <div class="modal-box">
     <div class="modal-handle"></div>
@@ -666,7 +654,6 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
   </div>
 </div>
 
-<!-- MODAL JOURNÉE PASSÉE -->
 <div class="modal-ov" id="modalJourPassee" onclick="modalOvClick(event,'modalJourPassee')">
   <div class="modal-box" style="max-height:92vh;overflow-y:auto">
     <div class="modal-handle"></div>
@@ -690,13 +677,12 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
   </div>
 </div>
 
-<!-- MODAL IA ANALYSE -->
 <div class="modal-ov" id="modalIA" onclick="modalOvClick(event,'modalIA')">
   <div class="modal-box" style="max-height:92vh;overflow-y:auto">
     <div class="modal-handle"></div>
     <div class="modal-title">🤖 Analyse IA<button class="modal-close" onclick="closeModal('modalIA')">✕</button></div>
     <div id="iaContent">
-      <p style="font-size:12px;color:var(--t2);margin-bottom:16px">Claude va analyser tes données et te donner des conseils personnalisés.</p>
+      <p style="font-size:12px;color:var(--t2);margin-bottom:16px">Gemini va analyser tes données et te donner des conseils personnalisés.</p>
       <button class="btn-primary" onclick="runIA()">🚀 Lancer l'analyse</button>
     </div>
   </div>
@@ -1916,9 +1902,9 @@ function renderCfg() {
 
     +'<div class="section-lbl">🤖 Intelligence Artificielle</div>'
     +'<div class="card">'
-    +'<div style="font-size:11px;color:var(--t2);margin-bottom:12px">Ta clé API est stockée uniquement sur ton appareil. Elle ne quitte jamais ton téléphone sauf pour appeler Claude.</div>'
-    +'<div class="fgrp"><label class="flbl">Clé API Anthropic</label>'
-    +'<input class="finp" type="password" id="cfgApiKey" placeholder="sk-ant-api03-..." value="'+(S.apiKey||'')+'">'
+    +'<div style="font-size:11px;color:var(--t2);margin-bottom:12px">Ta clé API est stockée uniquement sur ton appareil. Elle ne quitte jamais ton téléphone sauf pour appeler Gemini.</div>'
+    +'<div class="fgrp"><label class="flbl">Clé API Google Gemini</label>'
+    +'<input class="finp" type="password" id="cfgApiKey" placeholder="AIzaSy..." value="'+(S.apiKey||'')+'">'
     +'</div>'
     +'<div style="display:flex;gap:8px">'
     +'<button class="btn-primary btn-green" style="flex:1" onclick="saveApiKey()">💾 Enregistrer</button>'
@@ -1932,9 +1918,9 @@ function renderCfg() {
 function saveApiKey() {
   var key=document.getElementById('cfgApiKey').value.trim();
   if(!key){toast('❌ Entrez votre clé API');return;}
-  if(!key.startsWith('sk-ant-')){toast('❌ Clé invalide — doit commencer par sk-ant-');return;}
+  if(!key.startsWith('AIza')){toast('❌ Clé invalide — doit commencer par AIza');return;}
   S.apiKey=key; saveState(); renderCfg();
-  toast('✅ Clé API enregistrée — IA activée !');
+  toast('✅ Clé API Gemini enregistrée — IA activée !');
 }
 function toggleApiKeyVisibility() {
   var inp=document.getElementById('cfgApiKey'); if(!inp) return;
@@ -2159,7 +2145,7 @@ function runIA() {
   if(!S.apiKey){
     ic.innerHTML='<div style="background:var(--wrd);border:1px solid rgba(252,196,25,0.2);border-radius:var(--r12);padding:14px;margin-bottom:12px">'
       +'<div style="font-size:13px;font-weight:700;color:var(--warn);margin-bottom:6px">⚠️ Clé API manquante</div>'
-      +'<div style="font-size:12px;color:var(--t2)">Va dans <strong>Config → Intelligence Artificielle</strong> et entre ta clé API Anthropic pour activer l\'IA.</div>'
+      +'<div style="font-size:12px;color:var(--t2)">Va dans <strong>Config → Intelligence Artificielle</strong> et entre ta clé API Gemini pour activer l\'IA.</div>'
       +'</div>'
       +'<button class="btn-primary" onclick="showPage(\'pg-cfg\',null);closeModal(\'modalIA\')">⚙️ Aller dans Config</button>';
     return;
@@ -2206,35 +2192,49 @@ function runIA() {
     +'- Taux commission : 5% dépôts, 2% retraits, 1% frais opérateur\n\n'
     +'Fais une analyse courte et pratique en 4 points max : tendances, points forts, points à améliorer, et 2 conseils concrets. Sois direct et utile. Réponds en français.';
 
-  fetch('https://api.anthropic.com/v1/messages',{
-    method:'POST',
-    headers:{'Content-Type':'application/json','x-api-key':S.apiKey,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({
-      model:'claude-sonnet-4-20250514',
-      max_tokens:1000,
-      messages:[{role:'user',content:prompt}]
+  var geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=' + S.apiKey;
+
+  fetch(geminiUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      contents: [{
+        parts: [{
+          text: prompt
+        }]
+      }]
     })
   })
-  .then(function(r){return r.json();})
-  .then(function(data){
-    var text=data.content&&data.content[0]?data.content[0].text:'Erreur de réponse.';
-    // Format the response nicely
+  .then(function(r) { return r.json(); })
+  .then(function(data) {
+    if(data.error) {
+      throw new Error(data.error.message);
+    }
+    
+    var text = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] 
+               ? data.candidates[0].content.parts[0].text 
+               : 'Erreur de format de réponse.';
+               
     var lines=text.split('\n');
     var html='<div style="margin-bottom:12px;padding:10px;background:var(--grd);border:1px solid rgba(0,212,160,0.2);border-radius:var(--r8)">'
-      +'<div style="font-size:10px;font-weight:700;color:var(--green2);letter-spacing:1px;margin-bottom:6px">🤖 ANALYSE IA — PAIREDAS</div>'
+      +'<div style="font-size:10px;font-weight:700;color:var(--green2);letter-spacing:1px;margin-bottom:6px">🤖 ANALYSE GEMINI — PAIREDAS</div>'
       +'<div style="font-size:12px;color:var(--t2);line-height:1.6">';
     for(var i=0;i<lines.length;i++){
       var l=lines[i].trim();
       if(!l) html+='<br>';
       else if(l.match(/^[#\*]{1,3}\s/)||l.match(/^\d\./)) html+='<div style="color:var(--text);font-weight:700;margin-top:8px">'+l.replace(/^[#\*\s]+/,'')+'</div>';
-      else html+='<div>'+l+'</div>';
+      else html+='<div>'+l.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')+'</div>';
     }
     html+='</div></div>';
     html+='<button class="btn-primary" onclick="runIA()" style="margin-top:8px">🔄 Relancer l\'analyse</button>';
     ic.innerHTML=html;
   })
-  .catch(function(){
-    ic.innerHTML='<p style="color:var(--red2);font-size:12px">❌ Erreur de connexion. Vérifie ta connexion internet.</p>'
+  .catch(function(err){
+    console.error("Erreur Gemini API:", err);
+    ic.innerHTML='<p style="color:var(--red2);font-size:12px">❌ Erreur lors de l\'analyse. Vérifie ta connexion ou ta clé API.</p>'
+      +'<div style="font-size:9px;color:var(--red);margin-bottom:10px">'+err.message+'</div>'
       +'<button class="btn-primary" onclick="runIA()" style="margin-top:10px">🔄 Réessayer</button>';
   });
 }
@@ -2286,3 +2286,5 @@ function refreshAll() {
 </script>
 </body>
 </html>
+
+```
