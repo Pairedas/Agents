@@ -2192,7 +2192,7 @@ function runIA() {
     +'- Taux commission : 5% dépôts, 2% retraits, 1% frais opérateur\n\n'
     +'Fais une analyse courte et pratique en 4 points max : tendances, points forts, points à améliorer, et 2 conseils concrets. Sois direct et utile. Réponds en français.';
 
-  var geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=' + S.apiKey;
+  var geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash:generateContent?key=' + S.apiKey;
 
   fetch(geminiUrl, {
     method: 'POST',
