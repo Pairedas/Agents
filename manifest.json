@@ -1,0 +1,20 @@
+{
+  "name": "PAIREDAS MANAGER",
+  "short_name": "PAIREDAS",
+  "description": "Gestionnaire mobile money Wave — suivi des commissions, capital et bénéfices",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#050810",
+  "theme_color": "#050810",
+  "lang": "fr",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ]
+}

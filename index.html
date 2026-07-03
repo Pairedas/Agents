@@ -4,6 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="theme-color" content="#050810">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="PAIREDAS">
@@ -514,8 +516,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 <div class="modal-ov" id="modalObjectif" onclick="modalOvClick(event,'modalObjectif')">
   <div class="modal-box">
     <div class="modal-handle"></div>
-    <div class="modal-title">🎯 Objectif journalier<button class="modal-close" onclick="closeModal('modalObjectif')">✕</button></div>
+    <div class="modal-title">🎯 Objectifs<button class="modal-close" onclick="closeModal('modalObjectif')">✕</button></div>
     <div class="fgrp"><label class="flbl">Gain cible / jour (FCFA)</label><input class="finp" type="number" id="objInp" placeholder="ex: 50 000" inputmode="numeric"></div>
+    <div class="fgrp"><label class="flbl">Gain cible / mois (FCFA, optionnel)</label><input class="finp" type="number" id="objMoisInp" placeholder="ex: 1 500 000" inputmode="numeric"></div>
     <button class="btn-primary" onclick="saveObjectif()">💾 Enregistrer</button>
   </div>
 </div>
@@ -710,9 +713,9 @@ function todayStr() { return new Date().toLocaleDateString('fr-FR'); }
 
 function defaultState() {
   return {
-    pin:null, pinSetup:false, pinEnabled:true, pinStep:'setup1',
+    pin:null, pinSetup:false, pinEnabled:true, pinStep:'setup1', pinLockUntil:0,
     principal:{nom:'Pré-paiement', solde:0},
-    wallets:[], objectif:0,
+    wallets:[], objectif:0, objectifMois:0, lastBackupTs:0,
     journee:{date:todayStr(), fondsDepart:null, ajustements:[], bilan14:null, cloture:null},
     journeesArchivees:[], surplusHist:[], depenses:[], rechargements:[],
     prisesPerso:[], histPeriod:'semaine', apiKey:''
@@ -727,6 +730,9 @@ function loadState() {
       if (!S.rechargements) S.rechargements = [];
       if (!S.prisesPerso) S.prisesPerso = [];
       if (!S.apiKey) S.apiKey = '';
+      if (!S.objectifMois) S.objectifMois = 0;
+      if (!S.lastBackupTs) S.lastBackupTs = 0;
+      if (!S.pinLockUntil) S.pinLockUntil = 0;
       if (!S.journee) S.journee = {date:todayStr(), fondsDepart:null, ajustements:[], bilan14:null, cloture:null};
       if (!S.journee.ajustements) S.journee.ajustements = [];
       if (S.journee.date !== todayStr()) {
@@ -873,8 +879,17 @@ function handlePin() {
     if (pinBuf===pinTemp) { S.pin=pinBuf; S.pinSetup=true; S.pinStep='enter'; saveState(); unlockApp(); }
     else { showPinErr('PINs différents — recommencez'); pinBuf=''; pinTemp=''; S.pinStep='setup1'; document.getElementById('pinLbl').textContent='Créez votre PIN (4 chiffres)'; drawDots(false); }
   } else {
-    if (pinBuf===S.pin) { unlockApp(); }
-    else { pinTries++; showPinErr('PIN incorrect ('+pinTries+')'); pinBuf=''; drawDots(true); setTimeout(function(){drawDots(false);},800); }
+    if (S.pinLockUntil && Date.now()<S.pinLockUntil) {
+      var sec=Math.ceil((S.pinLockUntil-Date.now())/1000);
+      showPinErr('🔒 Trop d\'essais — attends '+sec+' s'); pinBuf=''; drawDots(false); return;
+    }
+    if (pinBuf===S.pin) { pinTries=0; S.pinLockUntil=0; saveState(); unlockApp(); }
+    else {
+      pinTries++;
+      if (pinTries>=5) { S.pinLockUntil=Date.now()+30000; saveState(); pinTries=0; showPinErr('🔒 5 essais ratés — bloqué 30 secondes'); }
+      else showPinErr('PIN incorrect ('+pinTries+'/5)');
+      pinBuf=''; drawDots(true); setTimeout(function(){drawDots(false);},800);
+    }
   }
 }
 function showPinErr(msg) { var el=document.getElementById('pinErr'); el.textContent=msg; setTimeout(function(){el.textContent='';},2500); }
@@ -896,13 +911,16 @@ function showPage(id, btn) {
   if(id==='pg-rech') renderRech();
   if(id==='pg-surplus') renderSurplusPage();
   if(id==='pg-dep') renderDep();
-  if(id==='pg-stats') renderStats();
+  if(id==='pg-stats'){statsResetMonth();renderStats();}
   if(id==='pg-cfg') renderCfg();
 }
 
 // ── MODALS ──
 function openModal(id) {
-  if (id==='modalObjectif') { var el=document.getElementById('objInp'); if(el) el.value=S.objectif||''; }
+  if (id==='modalObjectif') {
+    var el=document.getElementById('objInp'); if(el) el.value=S.objectif||'';
+    var elM=document.getElementById('objMoisInp'); if(elM) elM.value=S.objectifMois||'';
+  }
   if (id==='modalAjustement') setAdjType('apport');
   if (id==='modalPrisePerso') setPPSource('capital');
   var m=document.getElementById(id); if(m) m.className='modal-ov open';
@@ -953,6 +971,15 @@ function renderHome() {
   var soldeAtt=fd+gj.gainNet+bCrypto;
   var benefColor=benefNetReel>=0?'var(--green2)':'var(--red2)';
   var html='';
+
+  // ── RAPPEL DE SAUVEGARDE (si > 7 jours) ──
+  if (S.journeesArchivees.length>0 && (!S.lastBackupTs || (Date.now()-S.lastBackupTs)>7*24*3600*1000)) {
+    html+='<div class="card" style="border:1px solid rgba(252,196,25,0.3);background:linear-gradient(135deg,rgba(252,196,25,0.06),transparent);display:flex;align-items:center;gap:10px;padding:12px 14px">'
+        +'<div style="font-size:20px">💾</div>'
+        +'<div style="flex:1"><div style="font-size:12px;font-weight:700;color:var(--warn)">Pense à sauvegarder tes données</div>'
+        +'<div style="font-size:10px;color:var(--t3);margin-top:2px">'+(S.lastBackupTs?'Dernière sauvegarde : '+fmtDate(S.lastBackupTs):'Aucune sauvegarde JSON effectuée')+'</div></div>'
+        +'<button class="btn-sm btn-gold" onclick="openModal(\'modalSave\')">Sauvegarder</button></div>';
+  }
 
   // ── FONDS CARD ──
   html+='<div class="fonds-card">'
@@ -1805,87 +1832,131 @@ function delPrisePerso(id) {
 }
 
 // ── STATS ──
+// Vue par mois : à l'ouverture on affiche uniquement le mois en cours ;
+// les flèches ◀ ▶ permettent de consulter les mois passés
+var statsY=null, statsM=null;
+function statsResetMonth() { var n=new Date(); statsY=n.getFullYear(); statsM=n.getMonth(); }
+function statsShiftMonth(delta) {
+  var d=new Date(statsY,statsM+delta,1);
+  var now=new Date();
+  if (d.getTime()>new Date(now.getFullYear(),now.getMonth(),1).getTime()) return; // pas de futur
+  statsY=d.getFullYear(); statsM=d.getMonth();
+  renderStats();
+}
 function renderStats() {
   var el=document.getElementById('statsBody'); if(!el) return;
-  var totalBenef=0,totalBrut=0,totalFrais=0,totalCrypto=0;
+  if (statsY===null) statsResetMonth();
+  var now=new Date();
+  var isCurrentMonth=(statsY===now.getFullYear()&&statsM===now.getMonth());
+  var startM=new Date(statsY,statsM,1).getTime();
+  var endM=new Date(statsY,statsM+1,0,23,59,59,999).getTime();
+  var startPrev=new Date(statsY,statsM-1,1).getTime();
+  var moisLbl=new Date(statsY,statsM,1).toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+  var prevMoisLbl=new Date(statsY,statsM-1,1).toLocaleDateString('fr-FR',{month:'long'});
+
+  // Journées du mois affiché + total du mois précédent (pour comparaison)
+  var jm=[],totalBenef=0,totalBrut=0,totalFrais=0,totalCrypto=0,prevBenef=0,prevDays=0;
   for(var i=0;i<S.journeesArchivees.length;i++){
-    totalBenef+=S.journeesArchivees[i].gainNet;
-    totalBrut+=S.journeesArchivees[i].gainBrut;
-    totalFrais+=S.journeesArchivees[i].frais;
-    totalCrypto+=(S.journeesArchivees[i].benefCrypto||0);
+    var j=S.journeesArchivees[i];
+    if(j.ts>=startM&&j.ts<=endM){
+      jm.push(j);
+      totalBenef+=j.gainNet;totalBrut+=j.gainBrut;totalFrais+=j.frais;totalCrypto+=(j.benefCrypto||0);
+    } else if(j.ts>=startPrev&&j.ts<startM){
+      prevBenef+=j.gainNet+(j.benefCrypto||0);prevDays++;
+    }
   }
-  var nb=S.journeesArchivees.length;
-  var moy=nb>0?(totalBenef+totalCrypto)/nb:0;
-  var totalPersoCap=0,totalPersoBen=0;
-  if(S.prisesPerso){for(var i=0;i<S.prisesPerso.length;i++){
-    if(S.prisesPerso[i].source==='capital') totalPersoCap+=S.prisesPerso[i].montant;
-    else totalPersoBen+=S.prisesPerso[i].montant;
-  }}
-  var totalPerso=totalPersoCap+totalPersoBen;
-  var totalDepBusiness=0; for(var i=0;i<S.depenses.length;i++) totalDepBusiness+=S.depenses[i].montant;
+  var nb=jm.length;
+  var totalMois=totalBenef+totalCrypto;
+  var moy=nb>0?totalMois/nb:0;
+  var monthDiff=totalMois-prevBenef;
+
+  // Prises perso et dépenses du mois affiché
+  var persoCap=0,persoBen=0;
+  if(S.prisesPerso){for(var i=0;i<S.prisesPerso.length;i++){var pp=S.prisesPerso[i];
+    if(pp.ts>=startM&&pp.ts<=endM){if(pp.source==='capital')persoCap+=pp.montant;else persoBen+=pp.montant;}}}
+  var depBiz=0;for(var i=0;i<S.depenses.length;i++){if(S.depenses[i].ts>=startM&&S.depenses[i].ts<=endM)depBiz+=S.depenses[i].montant;}
 
   var best=null,worst=null;
-  for(var i=0;i<S.journeesArchivees.length;i++){
-    var v=S.journeesArchivees[i].gainNet+(S.journeesArchivees[i].benefCrypto||0);
-    if(!best||v>(best.gainNet+(best.benefCrypto||0))) best=S.journeesArchivees[i];
-    if(!worst||v<(worst.gainNet+(worst.benefCrypto||0))) worst=S.journeesArchivees[i];
+  for(var i=0;i<jm.length;i++){
+    var v=jm[i].gainNet+(jm[i].benefCrypto||0);
+    if(!best||v>(best.gainNet+(best.benefCrypto||0)))best=jm[i];
+    if(!worst||v<(worst.gainNet+(worst.benefCrypto||0)))worst=jm[i];
   }
 
-  // Semaine courante vs précédente (lundi→dimanche) + mois courant vs précédent
-  var now=new Date();
-  var startCurWeek=getStartOfWeekMonday(now);
-  var startPrevWeek=startCurWeek-7*24*3600*1000;
-  var startCurMonth=new Date(now.getFullYear(),now.getMonth(),1).getTime();
-  var startPrevMonth=new Date(now.getFullYear(),now.getMonth()-1,1).getTime();
-  var curWeekBenef=0,prevWeekBenef=0,curWeekDays=0;
-  var curMonthBenef=0,prevMonthBenef=0,curMonthDays=0;
-  for(var i=0;i<S.journeesArchivees.length;i++){
-    var ts=S.journeesArchivees[i].ts, v=S.journeesArchivees[i].gainNet+(S.journeesArchivees[i].benefCrypto||0);
-    if(ts>=startCurWeek){ curWeekBenef+=v; curWeekDays++; }
-    else if(ts>=startPrevWeek) prevWeekBenef+=v;
-    if(ts>=startCurMonth){ curMonthBenef+=v; curMonthDays++; }
-    else if(ts>=startPrevMonth&&ts<startCurMonth) prevMonthBenef+=v;
-  }
-  var weekDiff=curWeekBenef-prevWeekBenef;
-  var monthDiff=curMonthBenef-prevMonthBenef;
-  var moyWeek=curWeekDays>0?curWeekBenef/curWeekDays:0;
-  var moyMonth=curMonthDays>0?curMonthBenef/curMonthDays:0;
+  // ── SÉLECTEUR DE MOIS ──
+  var html='<div class="card" style="display:flex;justify-content:space-between;align-items:center;padding:10px 12px;border:1px solid rgba(245,166,35,0.25)">'
+    +'<button class="btn-sm btn-ghost" style="font-size:14px;padding:8px 14px" onclick="statsShiftMonth(-1)">◀</button>'
+    +'<div style="text-align:center"><div style="font-size:8px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--gold)">Période affichée</div>'
+    +'<div style="font-weight:700;font-size:15px;text-transform:capitalize;margin-top:2px">'+moisLbl+'</div>'
+    +(isCurrentMonth?'<div style="font-size:9px;color:var(--t3)">mois en cours</div>':'<div style="font-size:9px;color:var(--warn)">mois passé</div>')
+    +'</div>'
+    +'<button class="btn-sm btn-ghost" style="font-size:14px;padding:8px 14px;'+(isCurrentMonth?'opacity:0.25;pointer-events:none':'')+'" onclick="statsShiftMonth(1)">▶</button>'
+    +'</div>';
 
-  var html='<div class="stat-hero-grid">'
-    +'<div class="stat-hero-box" style="border-top:2px solid var(--green)"><div class="shb-lbl">Bénéfice net total</div><div class="shb-val c-green">+'+fmt(totalBenef+totalCrypto)+'</div><div style="font-size:9px;color:var(--t3)">FCFA</div></div>'
+  if(nb===0){
+    html+='<div class="empty"><div class="empty-icon">📊</div><div class="empty-tit">Aucune journée en '+moisLbl+'</div><div>Change de mois avec les flèches ◀ ▶</div></div>';
+    el.innerHTML=html; return;
+  }
+
+  // ── TUILES DU MOIS ──
+  html+='<div class="stat-hero-grid">'
+    +'<div class="stat-hero-box" style="border-top:2px solid var(--green)"><div class="shb-lbl">Bénéfice net du mois</div><div class="shb-val c-green">+'+fmt(totalMois)+'</div><div style="font-size:9px;color:var(--t3)">FCFA</div></div>'
     +'<div class="stat-hero-box" style="border-top:2px solid var(--blue)"><div class="shb-lbl">Moyenne / journée</div><div class="shb-val c-blue">+'+fmt(moy)+'</div><div style="font-size:9px;color:var(--t3)">FCFA · '+nb+' jour(s)</div></div>'
     +'<div class="stat-hero-box" style="border-top:2px solid var(--gold)"><div class="shb-lbl">Gain brut Wave</div><div class="shb-val c-gold">+'+fmt(totalBrut)+'</div><div style="font-size:9px;color:var(--t3)">FCFA</div></div>'
     +'<div class="stat-hero-box" style="border-top:2px solid var(--warn)"><div class="shb-lbl">Frais total</div><div class="shb-val c-warn">-'+fmt(totalFrais)+'</div><div style="font-size:9px;color:var(--t3)">FCFA</div></div>'
     +(totalCrypto!==0?'<div class="stat-hero-box" style="border-top:2px solid var(--purple)"><div class="shb-lbl">Résultat crypto</div><div class="shb-val" style="color:'+(totalCrypto>=0?'var(--green2)':'var(--red2)')+'">'+(totalCrypto>=0?'+':'')+fmt(totalCrypto)+'</div><div style="font-size:9px;color:var(--t3)">FCFA</div></div>':'')
-    +'<div class="stat-hero-box" style="border-top:2px solid var(--red)"><div class="shb-lbl">Prises perso</div><div class="shb-val" style="color:var(--purple)">-'+fmt(totalPerso)+'</div><div style="font-size:9px;color:var(--t3)">FCFA</div></div>'
+    +((persoCap+persoBen)>0?'<div class="stat-hero-box" style="border-top:2px solid var(--red)"><div class="shb-lbl">Prises perso</div><div class="shb-val" style="color:var(--purple)">-'+fmt(persoCap+persoBen)+'</div><div style="font-size:9px;color:var(--t3)">💼 '+fmt(persoCap)+' · 📈 '+fmt(persoBen)+'</div></div>':'')
     +'</div>';
 
-  // Semaine comparison
-  html+='<div class="card" style="margin-bottom:10px">'
-    +'<div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">📅 Cette semaine vs semaine dernière</div>'
-    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
-    +'<div style="background:var(--bg2);border-radius:var(--r8);padding:10px;text-align:center"><div style="font-size:9px;color:var(--t3);margin-bottom:4px">Cette semaine</div><div style="font-family:\'DM Mono\',monospace;font-size:16px;font-weight:700;color:var(--green2)">+'+fmt(curWeekBenef)+'</div><div style="font-size:9px;color:var(--t3);margin-top:3px">'+curWeekDays+' jour(s) · moy +'+fmt(moyWeek)+'/j</div></div>'
-    +'<div style="background:var(--bg2);border-radius:var(--r8);padding:10px;text-align:center"><div style="font-size:9px;color:var(--t3);margin-bottom:4px">Semaine dernière</div><div style="font-family:\'DM Mono\',monospace;font-size:16px;font-weight:700;color:var(--blue2)">+'+fmt(prevWeekBenef)+'</div></div>'
-    +'</div>'
-    +'<div style="padding:8px 12px;background:'+(weekDiff>=0?'var(--grd)':'var(--rrd)')+';border:1px solid '+(weekDiff>=0?'rgba(0,212,160,0.2)':'rgba(255,77,109,0.2)')+';border-radius:var(--r8);display:flex;justify-content:space-between;align-items:center">'
-    +'<span style="font-size:12px;font-weight:700;color:'+(weekDiff>=0?'var(--green2)':'var(--red2)')+'">'+(weekDiff>=0?'📈 Progression':'📉 Régression')+'</span>'
-    +'<span style="font-family:\'DM Mono\',monospace;font-size:14px;font-weight:700;color:'+(weekDiff>=0?'var(--green2)':'var(--red2)')+'">'+(weekDiff>=0?'+':'')+fmt(weekDiff)+' FCFA</span>'
-    +'</div></div>';
+  // ── OBJECTIF MENSUEL ──
+  if(S.objectifMois>0){
+    var pctM=Math.min(100,Math.max(0,(totalMois/S.objectifMois)*100));
+    var daysInM=new Date(statsY,statsM+1,0).getDate();
+    html+='<div class="obj-card">'
+      +'<div class="obj-header"><span style="font-weight:700;font-size:13px">🎯 Objectif mensuel</span><span class="sh-link" onclick="openModal(\'modalObjectif\')">Modifier</span></div>'
+      +'<div class="obj-track"><div class="obj-fill" style="width:'+pctM+'%"></div></div>'
+      +'<div class="obj-meta"><span>+'+fmt(totalMois)+'</span><span>'+Math.round(pctM)+'%</span><span>'+fmt(S.objectifMois)+'</span></div>'
+      +(isCurrentMonth&&nb>0?'<div style="margin-top:8px;padding:8px 12px;background:var(--bld);border:1px solid rgba(77,171,247,0.2);border-radius:var(--r8);display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;font-weight:700;color:var(--blue2)">📈 Projection fin de mois (à ce rythme)</span><span style="font-family:\'DM Mono\',monospace;font-size:13px;font-weight:700;color:var(--blue2)">+'+fmt(moy*daysInM)+' FCFA</span></div>':'')
+      +'</div>';
+  }
 
-  // Mois comparison
-  var moisLbl=now.toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+  // ── MOIS AFFICHÉ vs MOIS PRÉCÉDENT ──
   html+='<div class="card" style="margin-bottom:10px">'
-    +'<div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">🗓️ Ce mois-ci ('+moisLbl+') vs mois dernier</div>'
+    +'<div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">🗓️ '+moisLbl+' vs '+prevMoisLbl+'</div>'
     +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
-    +'<div style="background:var(--bg2);border-radius:var(--r8);padding:10px;text-align:center"><div style="font-size:9px;color:var(--t3);margin-bottom:4px">Ce mois-ci</div><div style="font-family:\'DM Mono\',monospace;font-size:16px;font-weight:700;color:var(--green2)">+'+fmt(curMonthBenef)+'</div><div style="font-size:9px;color:var(--t3);margin-top:3px">'+curMonthDays+' jour(s) · moy +'+fmt(moyMonth)+'/j</div></div>'
-    +'<div style="background:var(--bg2);border-radius:var(--r8);padding:10px;text-align:center"><div style="font-size:9px;color:var(--t3);margin-bottom:4px">Mois dernier</div><div style="font-family:\'DM Mono\',monospace;font-size:16px;font-weight:700;color:var(--blue2)">+'+fmt(prevMonthBenef)+'</div></div>'
+    +'<div style="background:var(--bg2);border-radius:var(--r8);padding:10px;text-align:center"><div style="font-size:9px;color:var(--t3);margin-bottom:4px;text-transform:capitalize">'+moisLbl+'</div><div style="font-family:\'DM Mono\',monospace;font-size:16px;font-weight:700;color:var(--green2)">+'+fmt(totalMois)+'</div><div style="font-size:9px;color:var(--t3);margin-top:3px">'+nb+' jour(s) · moy +'+fmt(moy)+'/j</div></div>'
+    +'<div style="background:var(--bg2);border-radius:var(--r8);padding:10px;text-align:center"><div style="font-size:9px;color:var(--t3);margin-bottom:4px;text-transform:capitalize">'+prevMoisLbl+'</div><div style="font-family:\'DM Mono\',monospace;font-size:16px;font-weight:700;color:var(--blue2)">+'+fmt(prevBenef)+'</div><div style="font-size:9px;color:var(--t3);margin-top:3px">'+prevDays+' jour(s)</div></div>'
     +'</div>'
     +'<div style="padding:8px 12px;background:'+(monthDiff>=0?'var(--grd)':'var(--rrd)')+';border:1px solid '+(monthDiff>=0?'rgba(0,212,160,0.2)':'rgba(255,77,109,0.2)')+';border-radius:var(--r8);display:flex;justify-content:space-between;align-items:center">'
     +'<span style="font-size:12px;font-weight:700;color:'+(monthDiff>=0?'var(--green2)':'var(--red2)')+'">'+(monthDiff>=0?'📈 Progression':'📉 Régression')+'</span>'
     +'<span style="font-family:\'DM Mono\',monospace;font-size:14px;font-weight:700;color:'+(monthDiff>=0?'var(--green2)':'var(--red2)')+'">'+(monthDiff>=0?'+':'')+fmt(monthDiff)+' FCFA</span>'
     +'</div></div>';
 
-  // Best & worst
+  // ── SEMAINE (uniquement pour le mois en cours) ──
+  if(isCurrentMonth){
+    var startCurWeek=getStartOfWeekMonday(now);
+    var startPrevWeek=startCurWeek-7*24*3600*1000;
+    var curWeekBenef=0,prevWeekBenef=0,curWeekDays=0;
+    for(var i=0;i<S.journeesArchivees.length;i++){
+      var ts=S.journeesArchivees[i].ts, vw=S.journeesArchivees[i].gainNet+(S.journeesArchivees[i].benefCrypto||0);
+      if(ts>=startCurWeek){curWeekBenef+=vw;curWeekDays++;}
+      else if(ts>=startPrevWeek)prevWeekBenef+=vw;
+    }
+    var weekDiff=curWeekBenef-prevWeekBenef;
+    var moyWeek=curWeekDays>0?curWeekBenef/curWeekDays:0;
+    html+='<div class="card" style="margin-bottom:10px">'
+      +'<div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">📅 Cette semaine vs semaine dernière</div>'
+      +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:8px">'
+      +'<div style="background:var(--bg2);border-radius:var(--r8);padding:10px;text-align:center"><div style="font-size:9px;color:var(--t3);margin-bottom:4px">Cette semaine</div><div style="font-family:\'DM Mono\',monospace;font-size:16px;font-weight:700;color:var(--green2)">+'+fmt(curWeekBenef)+'</div><div style="font-size:9px;color:var(--t3);margin-top:3px">'+curWeekDays+' jour(s) · moy +'+fmt(moyWeek)+'/j</div></div>'
+      +'<div style="background:var(--bg2);border-radius:var(--r8);padding:10px;text-align:center"><div style="font-size:9px;color:var(--t3);margin-bottom:4px">Semaine dernière</div><div style="font-family:\'DM Mono\',monospace;font-size:16px;font-weight:700;color:var(--blue2)">+'+fmt(prevWeekBenef)+'</div></div>'
+      +'</div>'
+      +'<div style="padding:8px 12px;background:'+(weekDiff>=0?'var(--grd)':'var(--rrd)')+';border:1px solid '+(weekDiff>=0?'rgba(0,212,160,0.2)':'rgba(255,77,109,0.2)')+';border-radius:var(--r8);display:flex;justify-content:space-between;align-items:center">'
+      +'<span style="font-size:12px;font-weight:700;color:'+(weekDiff>=0?'var(--green2)':'var(--red2)')+'">'+(weekDiff>=0?'📈 Progression':'📉 Régression')+'</span>'
+      +'<span style="font-family:\'DM Mono\',monospace;font-size:14px;font-weight:700;color:'+(weekDiff>=0?'var(--green2)':'var(--red2)')+'">'+(weekDiff>=0?'+':'')+fmt(weekDiff)+' FCFA</span>'
+      +'</div></div>';
+  }
+
+  // ── MEILLEURE / PIRE JOURNÉE DU MOIS ──
   if(best){
     html+='<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px">'
       +'<div class="card" style="border-top:2px solid var(--green);padding:12px"><div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin-bottom:6px">🏆 Meilleure journée</div>'
@@ -1897,68 +1968,76 @@ function renderStats() {
       +'</div>';
   }
 
-  html+='<div class="card"><div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">📊 Bénéfices — 7 derniers jours</div><div id="chart7j" class="chart-wrap"></div></div>';
-  html+='<div class="card"><div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">📊 Bénéfices — 6 derniers mois</div><div id="chartMensuel" class="chart-wrap"></div></div>';
-  html+='<div class="card"><div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">📅 Performance par jour de semaine</div><div id="chartJours" class="chart-wrap"></div></div>';
+  // ── GRAPHIQUES DU MOIS ──
+  html+='<div class="card"><div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">📊 Bénéfices par jour — '+moisLbl+'</div><div id="chartMoisJours" class="chart-wrap"></div></div>';
+  html+='<div class="card"><div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">💰 Évolution du capital — '+moisLbl+'</div><div id="chartCapital" class="chart-wrap"></div></div>';
+  html+='<div class="card"><div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">📅 Performance par jour de semaine — '+moisLbl+'</div><div id="chartJours" class="chart-wrap"></div></div>';
+  html+='<div class="card"><div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">🌍 Vue globale — 6 derniers mois</div><div id="chartMensuel" class="chart-wrap"></div></div>';
 
-  // Bilan net réel après prises — seules les prises sur BÉNÉFICES réduisent
-  // les commissions ; les prises sur CAPITAL sont suivies à part
-  var bilanFinal=(totalBenef+totalCrypto)-totalDepBusiness-totalPersoBen;
+  // ── BILAN DU MOIS ──
+  var bilanFinal=totalMois-depBiz-persoBen;
   html+='<div class="card" style="border:1px solid rgba(0,212,160,0.2);background:linear-gradient(135deg,rgba(0,212,160,0.05),transparent)">'
-    +'<div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">💰 Bilan global réel</div>'
-    +'<div class="ir"><span class="il">Bénéfice net total (commissions)</span><span class="iv c-green">+'+fmtF(totalBenef+totalCrypto)+'</span></div>'
-    +'<div class="ir"><span class="il">Dépenses business</span><span class="iv c-red">-'+fmtF(totalDepBusiness)+'</span></div>'
-    +'<div class="ir"><span class="il">Prises perso sur bénéfices</span><span class="iv" style="color:var(--purple)">-'+fmtF(totalPersoBen)+'</span></div>'
+    +'<div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">💰 Bilan réel — '+moisLbl+'</div>'
+    +'<div class="ir"><span class="il">Bénéfice net du mois (commissions)</span><span class="iv c-green">+'+fmtF(totalMois)+'</span></div>'
+    +'<div class="ir"><span class="il">Dépenses business du mois</span><span class="iv c-red">-'+fmtF(depBiz)+'</span></div>'
+    +'<div class="ir"><span class="il">Prises perso sur bénéfices</span><span class="iv" style="color:var(--purple)">-'+fmtF(persoBen)+'</span></div>'
     +'<div style="height:1px;background:var(--b2);margin:8px 0"></div>'
-    +'<div class="ir"><span class="il" style="font-weight:700;font-size:13px">✅ Reste net réel (commissions)</span><span style="font-family:\'DM Mono\',monospace;font-size:18px;font-weight:700;color:'+(bilanFinal>=0?'var(--green2)':'var(--red2)')+'">'+(bilanFinal>=0?'+':'')+fmtF(bilanFinal)+'</span></div>'
-    +(totalPersoCap>0?'<div style="height:1px;background:var(--b2);margin:8px 0"></div>'
-    +'<div class="ir"><span class="il">💼 Prises perso sur capital (séparé)</span><span class="iv" style="color:var(--purple)">-'+fmtF(totalPersoCap)+'</span></div>'
+    +'<div class="ir"><span class="il" style="font-weight:700;font-size:13px">✅ Reste net réel du mois</span><span style="font-family:\'DM Mono\',monospace;font-size:18px;font-weight:700;color:'+(bilanFinal>=0?'var(--green2)':'var(--red2)')+'">'+(bilanFinal>=0?'+':'')+fmtF(bilanFinal)+'</span></div>'
+    +(persoCap>0?'<div style="height:1px;background:var(--b2);margin:8px 0"></div>'
+    +'<div class="ir"><span class="il">💼 Prises perso sur capital (séparé)</span><span class="iv" style="color:var(--purple)">-'+fmtF(persoCap)+'</span></div>'
     +'<div style="font-size:10px;color:var(--t3);margin-top:4px">Ces prises réduisent ton capital de roulement, pas tes commissions.</div>':'')
     +'</div>';
 
   el.innerHTML=html;
 
-  // Charts SVG
-  // 7 derniers jours
-  var d7lbl=[],d7vals=[];
-  for(var i=6;i>=0;i--){
-    var dd=new Date(); dd.setDate(dd.getDate()-i);
-    var dayStart=new Date(dd.getFullYear(),dd.getMonth(),dd.getDate()).getTime();
-    var dayEnd=dayStart+24*3600*1000-1;
-    var vv=0;
-    for(var j=0;j<S.journeesArchivees.length;j++){
-      var t7=S.journeesArchivees[j].ts;
-      if(t7>=dayStart&&t7<=dayEnd) vv+=S.journeesArchivees[j].gainNet+(S.journeesArchivees[j].benefCrypto||0);
-    }
-    d7vals.push(Math.max(0,vv));
-    d7lbl.push(dd.toLocaleDateString('fr-FR',{day:'2-digit',month:'2-digit'}));
+  // Bénéfices par jour du mois affiché
+  var daysInMonth=new Date(statsY,statsM+1,0).getDate();
+  var lastDay=isCurrentMonth?now.getDate():daysInMonth;
+  var dl=[],dv=[];
+  for(var d=1;d<=lastDay;d++){
+    var ds=new Date(statsY,statsM,d).getTime(),de=ds+24*3600*1000-1,vv=0;
+    for(var k=0;k<jm.length;k++){if(jm[k].ts>=ds&&jm[k].ts<=de)vv+=jm[k].gainNet+(jm[k].benefCrypto||0);}
+    dv.push(Math.max(0,vv));
+    dl.push((d===1||d%5===0)?String(d):'');
   }
-  var c7=document.getElementById('chart7j'); if(c7) c7.innerHTML=buildBarSVG(d7vals,d7lbl,'var(--blue)');
+  var cmj=document.getElementById('chartMoisJours'); if(cmj) cmj.innerHTML=buildBarSVG(dv,dl,'var(--blue)');
 
-  var months=[],vals=[];
-  for(var i=5;i>=0;i--){
-    var d=new Date();d.setMonth(d.getMonth()-i);
-    months.push(d.toLocaleDateString('fr-FR',{month:'short'}));
-    var start=new Date(d.getFullYear(),d.getMonth(),1).getTime();
-    var end=new Date(d.getFullYear(),d.getMonth()+1,0,23,59,59).getTime();
-    var v=0;
-    for(var j=0;j<S.journeesArchivees.length;j++){
-      if(S.journeesArchivees[j].ts>=start&&S.journeesArchivees[j].ts<=end)
-        v+=S.journeesArchivees[j].gainNet+(S.journeesArchivees[j].benefCrypto||0);
-    }
-    vals.push(Math.max(0,v));
+  // Évolution du capital (fonds ajusté de chaque journée, ordre chronologique)
+  var jmC=jm.slice().sort(function(a,b){return a.ts-b.ts;});
+  var cv=[],cl=[];
+  for(var i=0;i<jmC.length;i++){
+    cv.push(Math.max(0,jmC[i].fondsAjuste||jmC[i].fondsDepart||0));
+    var dnum=new Date(jmC[i].ts).getDate();
+    cl.push((i===0||dnum%5===0)?String(dnum):'');
   }
-  var cm=document.getElementById('chartMensuel'); if(cm) cm.innerHTML=buildBarSVG(vals,months,'var(--gold)');
+  var cc=document.getElementById('chartCapital'); if(cc) cc.innerHTML=buildBarSVG(cv,cl,'var(--gold)');
 
+  // Performance par jour de semaine (mois affiché uniquement)
   var days=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'],dvals=[0,0,0,0,0,0,0];
-  for(var i=0;i<S.journeesArchivees.length;i++){
-    var dayJs=new Date(S.journeesArchivees[i].ts).getDay(); // 0=dim
+  for(var i=0;i<jm.length;i++){
+    var dayJs=new Date(jm[i].ts).getDay(); // 0=dim
     var dayIdx=dayJs===0?6:dayJs-1; // lun=0...dim=6
-    dvals[dayIdx]+=S.journeesArchivees[i].gainNet+(S.journeesArchivees[i].benefCrypto||0);
+    dvals[dayIdx]+=jm[i].gainNet+(jm[i].benefCrypto||0);
   }
   var maxIdx=0; for(var i=0;i<dvals.length;i++){if(dvals[i]>dvals[maxIdx])maxIdx=i;}
   var colors=[]; for(var i=0;i<dvals.length;i++) colors.push(i===maxIdx?'var(--green2)':'rgba(77,171,247,0.4)');
   var cj=document.getElementById('chartJours'); if(cj) cj.innerHTML=buildBarSVGColors(dvals,days,colors);
+
+  // Vue globale 6 derniers mois (indépendante du sélecteur)
+  var months=[],vals=[];
+  for(var i=5;i>=0;i--){
+    var d2=new Date();d2.setMonth(d2.getMonth()-i);
+    months.push(d2.toLocaleDateString('fr-FR',{month:'short'}));
+    var start=new Date(d2.getFullYear(),d2.getMonth(),1).getTime();
+    var end=new Date(d2.getFullYear(),d2.getMonth()+1,0,23,59,59).getTime();
+    var v2=0;
+    for(var k=0;k<S.journeesArchivees.length;k++){
+      if(S.journeesArchivees[k].ts>=start&&S.journeesArchivees[k].ts<=end)
+        v2+=S.journeesArchivees[k].gainNet+(S.journeesArchivees[k].benefCrypto||0);
+    }
+    vals.push(Math.max(0,v2));
+  }
+  var cm=document.getElementById('chartMensuel'); if(cm) cm.innerHTML=buildBarSVG(vals,months,'var(--gold)');
 }
 function buildBarSVG(vals,labels,color) {
   var c=[]; for(var i=0;i<vals.length;i++) c.push(color);
@@ -2004,7 +2083,7 @@ function renderCfg() {
     +'<div class="section-lbl">Sécurité</div>'
     +'<div class="card"><div class="set-row"><div><div class="set-lbl">Code PIN</div><div class="set-sub">Protection de l\'accès</div></div>'
     +'<div class="toggle '+(S.pinEnabled?'on':'')+'" onclick="togglePin()"></div></div>'
-    +'<div class="set-row"><div><div class="set-lbl">Changer le PIN</div><div class="set-sub">PIN : '+(S.pin||'—')+'</div></div>'
+    +'<div class="set-row"><div><div class="set-lbl">Changer le PIN</div><div class="set-sub">PIN : '+(S.pin?'••••':'—')+'</div></div>'
     +'<button class="btn-sm btn-ghost" onclick="changePin()">Modifier</button></div></div>'
 
     +'<div class="section-lbl">Taux appliqués</div>'
@@ -2068,7 +2147,11 @@ function saveObjectif() {
   var el=document.getElementById('objInp'); if(!el) return;
   var v=parseFloat(el.value);
   if(isNaN(v)||v<=0){toast('❌ Montant invalide');return;}
-  S.objectif=v; saveState(); renderHome(); closeModal('modalObjectif'); toast('🎯 Objectif enregistré');
+  S.objectif=v;
+  var elM=document.getElementById('objMoisInp');
+  var vm=elM?parseFloat(elM.value):NaN;
+  S.objectifMois=(!isNaN(vm)&&vm>0)?vm:0;
+  saveState(); renderHome(); closeModal('modalObjectif'); toast('🎯 Objectifs enregistrés');
 }
 function togglePin() { S.pinEnabled=!S.pinEnabled; saveState(); renderCfg(); toast(S.pinEnabled?'🔒 PIN activé':'🔓 PIN désactivé'); }
 function changePin() {
@@ -2110,6 +2193,7 @@ function exportTxt() {
   closeModal('modalExport'); toast('📄 Rapport exporté');
 }
 function exportJSON() {
+  S.lastBackupTs=Date.now(); saveState();
   var data=JSON.stringify(S,null,2);
   var a=document.createElement('a');
   a.href='data:application/json;charset=utf-8,'+encodeURIComponent(data);
