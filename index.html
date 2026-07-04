@@ -692,8 +692,10 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
     <div class="modal-handle"></div>
     <div class="modal-title">🤖 Analyse IA<button class="modal-close" onclick="closeModal('modalIA')">✕</button></div>
     <div id="iaContent">
-      <p style="font-size:12px;color:var(--t2);margin-bottom:16px">Gemini va analyser tes données et te donner des conseils personnalisés.</p>
-      <button class="btn-primary" onclick="runIA()">🚀 Lancer l'analyse</button>
+      <p style="font-size:12px;color:var(--t2);margin-bottom:4px">Gemini analyse <strong>le mois affiché dans Stats</strong> et répond à tes questions.</p>
+      <div class="fgrp" style="margin-top:12px"><label class="flbl">💬 Ta question (optionnel)</label>
+      <textarea class="finp" id="iaQuestion" rows="2" placeholder="ex: Comment augmenter mes bénéfices ? Pourquoi mes frais sont si élevés ?" style="resize:none"></textarea></div>
+      <button class="btn-primary" onclick="runIA()">🚀 Analyser</button>
     </div>
   </div>
 </div>
@@ -1908,6 +1910,22 @@ function renderStats() {
     +((persoCap+persoBen)>0?'<div class="stat-hero-box" style="border-top:2px solid var(--red)"><div class="shb-lbl">Prises perso</div><div class="shb-val" style="color:var(--purple)">-'+fmt(persoCap+persoBen)+'</div><div style="font-size:9px;color:var(--t3)">💼 '+fmt(persoCap)+' · 📈 '+fmt(persoBen)+'</div></div>':'')
     +'</div>';
 
+  // ── PRÉVISION FIN DE MOIS (mois en cours, toujours visible) ──
+  if(isCurrentMonth&&nb>0){
+    var daysInM2=new Date(statsY,statsM+1,0).getDate();
+    var joursRestants=Math.max(0,daysInM2-now.getDate());
+    var projection=totalMois+moy*joursRestants;
+    html+='<div class="card" style="margin-bottom:10px;border:1px solid rgba(77,171,247,0.25);background:linear-gradient(135deg,rgba(77,171,247,0.06),transparent)">'
+      +'<div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--blue2);margin-bottom:10px">🔮 Prévision fin de mois</div>'
+      +'<div class="ir"><span class="il">Bénéfice actuel ('+nb+' jour(s))</span><span class="iv c-green">+'+fmtF(totalMois)+'</span></div>'
+      +'<div class="ir"><span class="il">Moyenne / jour</span><span class="iv c-blue">+'+fmtF(moy)+'</span></div>'
+      +'<div class="ir"><span class="il">Jours restants dans le mois</span><span class="iv">'+joursRestants+'</span></div>'
+      +'<div style="height:1px;background:var(--b2);margin:8px 0"></div>'
+      +'<div class="ir"><span class="il" style="font-weight:700;font-size:13px">📈 Projection fin de mois</span><span style="font-family:\'DM Mono\',monospace;font-size:17px;font-weight:700;color:var(--blue2)">+'+fmtF(projection)+'</span></div>'
+      +(S.objectifMois>0?'<div style="font-size:10px;color:'+(projection>=S.objectifMois?'var(--green2)':'var(--warn)')+';margin-top:6px">'+(projection>=S.objectifMois?'✅ Objectif mensuel ('+fmt(S.objectifMois)+' FCFA) atteignable à ce rythme':'⚠️ En dessous de l\'objectif mensuel ('+fmt(S.objectifMois)+' FCFA) — il faut accélérer')+'</div>':'')
+      +'</div>';
+  }
+
   // ── OBJECTIF MENSUEL ──
   if(S.objectifMois>0){
     var pctM=Math.min(100,Math.max(0,(totalMois/S.objectifMois)*100));
@@ -1916,7 +1934,6 @@ function renderStats() {
       +'<div class="obj-header"><span style="font-weight:700;font-size:13px">🎯 Objectif mensuel</span><span class="sh-link" onclick="openModal(\'modalObjectif\')">Modifier</span></div>'
       +'<div class="obj-track"><div class="obj-fill" style="width:'+pctM+'%"></div></div>'
       +'<div class="obj-meta"><span>+'+fmt(totalMois)+'</span><span>'+Math.round(pctM)+'%</span><span>'+fmt(S.objectifMois)+'</span></div>'
-      +(isCurrentMonth&&nb>0?'<div style="margin-top:8px;padding:8px 12px;background:var(--bld);border:1px solid rgba(77,171,247,0.2);border-radius:var(--r8);display:flex;justify-content:space-between;align-items:center"><span style="font-size:11px;font-weight:700;color:var(--blue2)">📈 Projection fin de mois (à ce rythme)</span><span style="font-family:\'DM Mono\',monospace;font-size:13px;font-weight:700;color:var(--blue2)">+'+fmt(moy*daysInM)+' FCFA</span></div>':'')
       +'</div>';
   }
 
@@ -2341,6 +2358,13 @@ function saveJourPassee() {
 }
 
 // ── IA ANALYSE ──
+// Analyse le MOIS AFFICHÉ dans Stats (pas le total global) et permet
+// de poser des questions libres à Gemini sur les données du mois
+function iaFormHtml(btnLbl) {
+  return '<div class="fgrp" style="margin-top:12px"><label class="flbl">💬 Ta question (optionnel)</label>'
+    +'<textarea class="finp" id="iaQuestion" rows="2" placeholder="ex: Comment augmenter mes bénéfices ? Pourquoi mes frais sont si élevés ?" style="resize:none"></textarea></div>'
+    +'<button class="btn-primary" onclick="runIA()">'+btnLbl+'</button>';
+}
 function runIA() {
   var ic=document.getElementById('iaContent'); if(!ic) return;
 
@@ -2353,46 +2377,74 @@ function runIA() {
     return;
   }
 
-  ic.innerHTML='<div style="text-align:center;padding:20px"><div style="font-size:28px;margin-bottom:10px">🤖</div><div style="font-size:13px;color:var(--t2)">Analyse en cours...</div></div>';
+  var qEl=document.getElementById('iaQuestion');
+  var question=qEl?qEl.value.trim():'';
 
-  var nb=S.journeesArchivees.length;
-  if(nb===0){ic.innerHTML='<p style="color:var(--t2);font-size:12px">Pas encore assez de données. Reviens après quelques journées enregistrées.</p>';return;}
+  // Données du mois affiché dans Stats
+  if(statsY===null) statsResetMonth();
+  var startM=new Date(statsY,statsM,1).getTime();
+  var endM=new Date(statsY,statsM+1,0,23,59,59,999).getTime();
+  var moisLbl=new Date(statsY,statsM,1).toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
+  var jm=[];
+  for(var i=0;i<S.journeesArchivees.length;i++){
+    var jj=S.journeesArchivees[i];
+    if(jj.ts>=startM&&jj.ts<=endM) jm.push(jj);
+  }
+  var nbM=jm.length;
+  if(nbM===0){
+    ic.innerHTML='<p style="color:var(--t2);font-size:12px;margin-bottom:10px">Aucune journée enregistrée en <strong>'+moisLbl+'</strong>. Change de mois dans Stats (flèches ◀ ▶) ou reviens après quelques journées.</p>'+iaFormHtml('🚀 Analyser');
+    return;
+  }
 
-  var totalBenef=0,totalCrypto=0,totalDep=0,totalRet=0;
+  ic.innerHTML='<div style="text-align:center;padding:20px"><div style="font-size:28px;margin-bottom:10px">🤖</div><div style="font-size:13px;color:var(--t2)">Analyse de '+moisLbl+' en cours...</div></div>';
+
+  var totalBenef=0,totalCrypto=0,totalDep=0,totalRet=0,totalFrais=0;
   var jours=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'],jourVals=[0,0,0,0,0,0,0],jourCounts=[0,0,0,0,0,0,0];
-  var best=S.journeesArchivees[0],worst=S.journeesArchivees[0];
-  for(var i=0;i<nb;i++){
-    var j=S.journeesArchivees[i];
+  var best=jm[0],worst=jm[0];
+  for(var i=0;i<nbM;i++){
+    var j=jm[i];
     var v=j.gainNet+(j.benefCrypto||0);
-    totalBenef+=j.gainNet; totalCrypto+=(j.benefCrypto||0);
+    totalBenef+=j.gainNet; totalCrypto+=(j.benefCrypto||0); totalFrais+=j.frais;
     totalDep+=j.totalDep; totalRet+=j.totalRet;
     var dayJs=new Date(j.ts).getDay(); var dayIdx=dayJs===0?6:dayJs-1;
     jourVals[dayIdx]+=v; jourCounts[dayIdx]++;
     if(v>(best.gainNet+(best.benefCrypto||0))) best=j;
     if(v<(worst.gainNet+(worst.benefCrypto||0))) worst=j;
   }
-  var moy=(totalBenef+totalCrypto)/nb;
-  var totalPerso=0; if(S.prisesPerso) for(var i=0;i<S.prisesPerso.length;i++) totalPerso+=S.prisesPerso[i].montant;
+  var moy=(totalBenef+totalCrypto)/nbM;
+  var persoCap=0,persoBen=0;
+  if(S.prisesPerso){for(var i=0;i<S.prisesPerso.length;i++){var pp=S.prisesPerso[i];
+    if(pp.ts>=startM&&pp.ts<=endM){if(pp.source==='capital')persoCap+=pp.montant;else persoBen+=pp.montant;}}}
 
-  // Meilleur jour de semaine
   var bestDayIdx=0;
   for(var i=0;i<7;i++){if(jourCounts[i]>0&&(jourVals[i]/jourCounts[i])>(jourCounts[bestDayIdx]>0?jourVals[bestDayIdx]/jourCounts[bestDayIdx]:0))bestDayIdx=i;}
 
+  var now=new Date();
+  var isCur=(statsY===now.getFullYear()&&statsM===now.getMonth());
+  var daysInM=new Date(statsY,statsM+1,0).getDate();
+  var projection=Math.round((totalBenef+totalCrypto)+moy*Math.max(0,daysInM-now.getDate()));
+
   var prompt='Tu es un conseiller financier expert en agences mobile money Wave en Afrique de l\'Ouest.\n\n'
-    +'Voici les données réelles de mon activité PAIREDAS :\n'
-    +'- Journées enregistrées : '+nb+'\n'
-    +'- Bénéfice net Wave total : '+Math.round(totalBenef)+' FCFA\n'
-    +'- Résultat crypto total : '+Math.round(totalCrypto)+' FCFA\n'
-    +'- Bénéfice net réel total : '+Math.round(totalBenef+totalCrypto)+' FCFA\n'
+    +'Données PAIREDAS pour le mois de '+moisLbl+' UNIQUEMENT :\n'
+    +'- Journées enregistrées ce mois : '+nbM+'\n'
+    +'- Bénéfice net Wave du mois : '+Math.round(totalBenef)+' FCFA\n'
+    +'- Résultat crypto du mois : '+Math.round(totalCrypto)+' FCFA\n'
+    +'- Bénéfice net réel du mois : '+Math.round(totalBenef+totalCrypto)+' FCFA\n'
     +'- Moyenne par jour : '+Math.round(moy)+' FCFA\n'
-    +'- Volume dépôts total : '+Math.round(totalDep)+' FCFA\n'
-    +'- Volume retraits total : '+Math.round(totalRet)+' FCFA\n'
-    +'- Meilleure journée : +'+Math.round(best.gainNet+(best.benefCrypto||0))+' FCFA ('+best.dateShort+')\n'
-    +'- Pire journée : '+Math.round(worst.gainNet+(worst.benefCrypto||0))+' FCFA ('+worst.dateShort+')\n'
-    +'- Meilleur jour de semaine : '+jours[bestDayIdx]+' (moyenne '+Math.round(jourCounts[bestDayIdx]>0?jourVals[bestDayIdx]/jourCounts[bestDayIdx]:0)+' FCFA)\n'
-    +'- Prises personnelles : '+Math.round(totalPerso)+' FCFA\n'
+    +'- Frais opérateur du mois : '+Math.round(totalFrais)+' FCFA\n'
+    +'- Volume dépôts du mois : '+Math.round(totalDep)+' FCFA\n'
+    +'- Volume retraits du mois : '+Math.round(totalRet)+' FCFA\n'
+    +'- Meilleure journée du mois : +'+Math.round(best.gainNet+(best.benefCrypto||0))+' FCFA ('+best.dateShort+')\n'
+    +'- Pire journée du mois : '+Math.round(worst.gainNet+(worst.benefCrypto||0))+' FCFA ('+worst.dateShort+')\n'
+    +'- Meilleur jour de semaine : '+jours[bestDayIdx]+'\n'
+    +'- Prises perso du mois : '+Math.round(persoCap)+' FCFA sur capital, '+Math.round(persoBen)+' FCFA sur bénéfices\n'
+    +(isCur?'- Projection fin de mois à ce rythme : '+projection+' FCFA\n':'')
+    +(S.objectifMois>0?'- Objectif mensuel : '+Math.round(S.objectifMois)+' FCFA\n':'')
+    +'- Historique total (tous mois confondus) : '+S.journeesArchivees.length+' journées\n'
     +'- Taux commission : 5% dépôts, 2% retraits, 1% frais opérateur\n\n'
-    +'Fais une analyse courte et pratique en 4 points max : tendances, points forts, points à améliorer, et 2 conseils concrets. Sois direct et utile. Réponds en français.';
+    +(question
+      ? 'Question du gérant : « '+question+' »\n\nRéponds directement à sa question de façon pratique et concrète, en te basant sur les données du mois ci-dessus. Réponds en français, sois bref et utile.'
+      : 'Fais une analyse courte et pratique de ce mois en 4 points max : tendances, points forts, points à améliorer, et 2 conseils concrets. Sois direct et utile. Réponds en français.');
 
   var geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' + S.apiKey;
 
@@ -2414,14 +2466,15 @@ function runIA() {
     if(data.error) {
       throw new Error(data.error.message);
     }
-    
-    var text = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0] 
-               ? data.candidates[0].content.parts[0].text 
+
+    var text = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]
+               ? data.candidates[0].content.parts[0].text
                : 'Erreur de format de réponse.';
-               
+
     var lines=text.split('\n');
     var html='<div style="margin-bottom:12px;padding:10px;background:var(--grd);border:1px solid rgba(0,212,160,0.2);border-radius:var(--r8)">'
-      +'<div style="font-size:10px;font-weight:700;color:var(--green2);letter-spacing:1px;margin-bottom:6px">🤖 ANALYSE GEMINI — PAIREDAS</div>'
+      +'<div style="font-size:10px;font-weight:700;color:var(--green2);letter-spacing:1px;margin-bottom:6px">🤖 GEMINI — '+moisLbl.toUpperCase()+'</div>'
+      +(question?'<div style="font-size:11px;color:var(--t3);margin-bottom:8px;font-style:italic">💬 « '+esc(question)+' »</div>':'')
       +'<div style="font-size:12px;color:var(--t2);line-height:1.6">';
     for(var i=0;i<lines.length;i++){
       var l=lines[i].trim();
@@ -2430,14 +2483,14 @@ function runIA() {
       else html+='<div>'+l.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')+'</div>';
     }
     html+='</div></div>';
-    html+='<button class="btn-primary" onclick="runIA()" style="margin-top:8px">🔄 Relancer l\'analyse</button>';
+    html+=iaFormHtml('💬 Poser une autre question');
     ic.innerHTML=html;
   })
   .catch(function(err){
     console.error("Erreur Gemini API:", err);
     ic.innerHTML='<p style="color:var(--red2);font-size:12px">❌ Erreur lors de l\'analyse. Vérifie ta connexion ou ta clé API.</p>'
-      +'<div style="font-size:9px;color:var(--red);margin-bottom:10px">'+err.message+'</div>'
-      +'<button class="btn-primary" onclick="runIA()" style="margin-top:10px">🔄 Réessayer</button>';
+      +'<div style="font-size:9px;color:var(--red);margin-bottom:10px">'+esc(err.message)+'</div>'
+      +iaFormHtml('🔄 Réessayer');
   });
 }
 
