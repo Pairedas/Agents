@@ -735,6 +735,31 @@ function loadState() {
       if (!S.objectifMois) S.objectifMois = 0;
       if (!S.lastBackupTs) S.lastBackupTs = 0;
       if (!S.pinLockUntil) S.pinLockUntil = 0;
+      // Réparation one-shot : les clôtures faites après minuit ont archivé
+      // benefCrypto=0 (bug de date). On rattache les rechargements aux
+      // journées par date exacte, puis par date-1 (clôture après minuit).
+      if (!S.cryptoFix1 && S.rechargements && S.rechargements.length > 0) {
+        var usedR = {};
+        for (var pass = 0; pass < 2; pass++) {
+          for (var fi = 0; fi < S.journeesArchivees.length; fi++) {
+            var ja = S.journeesArchivees[fi];
+            if (ja.benefCrypto) continue;
+            var dref = new Date(ja.ts - pass * 86400000).toLocaleDateString('fr-FR');
+            var sum = 0, ids = [];
+            for (var fk = 0; fk < S.rechargements.length; fk++) {
+              var rr = S.rechargements[fk];
+              if (!usedR[rr.id] && rr.date === dref) { sum += rr.benef; ids.push(rr.id); }
+            }
+            if (ids.length > 0) {
+              for (var fk2 = 0; fk2 < ids.length; fk2++) usedR[ids[fk2]] = true;
+              ja.benefCrypto = sum;
+              ja.benefNetReel = (ja.gainNet || 0) + sum;
+            }
+          }
+        }
+        S.cryptoFix1 = true;
+        saveState();
+      }
       if (!S.journee) S.journee = {date:todayStr(), fondsDepart:null, ajustements:[], bilan14:null, cloture:null};
       if (!S.journee.ajustements) S.journee.ajustements = [];
       if (S.journee.date !== todayStr()) {
@@ -826,7 +851,9 @@ function gainJour() {
   return {gainNet:gn, gainBrut:gb, frais:f};
 }
 function benefCryptoJour() {
-  var today = todayStr(), b=0;
+  // Date de la JOURNÉE en cours (pas l'horloge) : une clôture après minuit
+  // doit compter les rechargements de la journée qu'on est en train de fermer
+  var today = S.journee.date, b=0;
   for (var i=0; i<S.rechargements.length; i++) {
     if (S.rechargements[i].date === today) b += S.rechargements[i].benef;
   }
@@ -1035,7 +1062,7 @@ function renderHome() {
         +'</div>';
 
     // Crypto
-    var today=todayStr();
+    var today=S.journee.date;
     var rechJour=[];
     for (var i=0; i<S.rechargements.length; i++) { if(S.rechargements[i].date===today) rechJour.push(S.rechargements[i]); }
     var totRF=0, totRR=0;
@@ -1633,7 +1660,7 @@ function saveRech() {
   var frais=Math.round(e*taux);
   var cashback=rechType==='international'?Math.round(e*0.01):0;
   var benef=Math.round(c-e-frais);
-  S.rechargements.push({id:Date.now(),ts:Date.now(),envoye:e,crypto:c,frais:frais,cashback:cashback,recoit:c,benef:benef,note:note,date:todayStr(),typeTransfert:rechType});
+  S.rechargements.push({id:Date.now(),ts:Date.now(),envoye:e,crypto:c,frais:frais,cashback:cashback,recoit:c,benef:benef,note:note,date:S.journee.date,typeTransfert:rechType});
   saveState(); closeModal('modalRech');
   var re=document.getElementById('rechEnvoye');if(re)re.value='';
   var rc=document.getElementById('rechCrypto');if(rc)rc.value='';
@@ -1644,7 +1671,7 @@ function saveRech() {
   toast(benef>=0?'✅ +'+fmtF(benef)+' bénéfice crypto':'⚠️ '+fmtF(benef)+' perte crypto');
 }
 function renderRech() {
-  var today=todayStr();
+  var today=S.journee.date;
   var todayR=[],tEB=0,tEF=0,tER=0;
   for(var i=0;i<S.rechargements.length;i++){
     var r=S.rechargements[i];
@@ -1654,7 +1681,7 @@ function renderRech() {
   if(stEl) {
     if(todayR.length>0) {
       stEl.innerHTML='<div class="hist-stats" style="margin-bottom:10px">'
-        +'<div class="hist-stats-title">📊 Rechargements aujourd\'hui</div>'
+        +'<div class="hist-stats-title">📊 Rechargements du jour ('+today+')</div>'
         +'<div class="hsr"><span class="hsl">💰 Pré-paiement rechargé</span><span class="hsv c-blue">'+fmtF(tER)+'</span></div>'
         +'<div class="hsr"><span class="hsl">⚠️ Frais Wave total</span><span class="hsv c-warn">-'+fmtF(tEF)+'</span></div>'
         +'<div class="hsr"><span class="hsl" style="font-weight:700">'+(tEB>=0?'✅ Bénéfice crypto':'❌ Perte crypto')+'</span>'
