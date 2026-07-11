@@ -718,6 +718,8 @@ function defaultState() {
     pin:null, pinSetup:false, pinEnabled:true, pinStep:'setup1', pinLockUntil:0,
     principal:{nom:'Pré-paiement', solde:0},
     wallets:[], objectif:0, objectifMois:0, lastBackupTs:0,
+    taux:{commDep:5, commRet:2, fraisOp:1, rechNat:1, rechInter:0.5},
+    seuilCapital:0,
     journee:{date:todayStr(), fondsDepart:null, ajustements:[], bilan14:null, cloture:null},
     journeesArchivees:[], surplusHist:[], depenses:[], rechargements:[],
     prisesPerso:[], histPeriod:'semaine', apiKey:''
@@ -735,6 +737,8 @@ function loadState() {
       if (!S.objectifMois) S.objectifMois = 0;
       if (!S.lastBackupTs) S.lastBackupTs = 0;
       if (!S.pinLockUntil) S.pinLockUntil = 0;
+      if (!S.taux) S.taux = {commDep:5, commRet:2, fraisOp:1, rechNat:1, rechInter:0.5};
+      if (!S.seuilCapital) S.seuilCapital = 0;
       // Réparation one-shot : les clôtures faites après minuit ont archivé
       // benefCrypto=0 (bug de date). On rattache les rechargements aux
       // journées par date exacte, puis par date-1 (clôture après minuit).
@@ -824,9 +828,9 @@ function hierStr() { var d=new Date(); d.setDate(d.getDate()-1); return d.toLoca
 
 // ── CALCULS ──
 function calcGains(dep, ret) {
-  var cd = dep * 0.05, cr = ret * 0.02;
+  var cd = dep * (S.taux.commDep/100), cr = ret * (S.taux.commRet/100);
   var gb = cd + cr;
-  var f = (dep + ret) * 0.01;
+  var f = (dep + ret) * (S.taux.fraisOp/100);
   return {commDep:cd, commRet:cr, gainBrut:gb, frais:f, gainNet:gb-f};
 }
 function totalRoulement() {
@@ -1000,6 +1004,16 @@ function renderHome() {
   var soldeAtt=fd+gj.gainNet+bCrypto;
   var benefColor=benefNetReel>=0?'var(--green2)':'var(--red2)';
   var html='';
+
+  // ── ALERTE CAPITAL BAS ──
+  var roul=totalRoulement();
+  if (S.seuilCapital>0 && roul<S.seuilCapital) {
+    html+='<div class="card" style="border:1px solid rgba(255,77,109,0.35);background:linear-gradient(135deg,rgba(255,77,109,0.08),transparent);display:flex;align-items:center;gap:10px;padding:12px 14px">'
+        +'<div style="font-size:20px">🚨</div>'
+        +'<div style="flex:1"><div style="font-size:12px;font-weight:700;color:var(--red2)">Capital bas : '+fmtF(roul)+'</div>'
+        +'<div style="font-size:10px;color:var(--t3);margin-top:2px">Sous ton seuil de '+fmtF(S.seuilCapital)+' — pense à recharger</div></div>'
+        +'</div>';
+  }
 
   // ── RAPPEL DE SAUVEGARDE (si > 7 jours) ──
   if (S.journeesArchivees.length>0 && (!S.lastBackupTs || (Date.now()-S.lastBackupTs)>7*24*3600*1000)) {
@@ -1297,7 +1311,7 @@ function updateCalcRapide() {
   if (!m||m<=0) { r.style.display='none'; return; }
   var g=calcGains(t==='depot'?m:0, t==='retrait'?m:0);
   var comm=t==='depot'?g.commDep:g.commRet;
-  var frais=m*0.01;
+  var frais=m*(S.taux.fraisOp/100);
   var net=comm-frais;
   r.style.display='grid';
   var cb=document.getElementById('crBrut'); if(cb) cb.textContent='+'+fmt(comm);
@@ -1476,6 +1490,10 @@ function valider(id) {
     saveState(); renderTBar(); renderSaisie(); renderHome(); renderHist();
     toast('🎉 Journée clôturée — Bénéfice net réel : +'+fmtF(journee.benefNetReel));
     showPage('pg-hist',null);
+    // Proposition de sauvegarde : la clôture est le meilleur moment
+    setTimeout(function(){
+      if (confirm('🎉 Journée clôturée !\n\nVeux-tu sauvegarder tes données maintenant (fichier JSON) ?')) exportJSON();
+    }, 500);
   }
 }
 
@@ -1630,7 +1648,7 @@ function setRechType(t) {
     if(bi) bi.className='type-btn on-retrait';
   }
   var lbl=document.getElementById('rechFraisLbl');
-  if(lbl) lbl.textContent=t==='national'?'Frais Wave (1%)':'Frais nets (1.5%−1% remb.)';
+  if(lbl) lbl.textContent=t==='national'?'Frais Wave ('+S.taux.rechNat+'%)':'Frais nets ('+S.taux.rechInter+'%)';
   calcRech();
 }
 function calcRech() {
@@ -1640,7 +1658,7 @@ function calcRech() {
   if(isNaN(e)||isNaN(c)){prev.style.display='none';return;}
   prev.style.display='block';
   // National: 1% frais nets. Inter: 1.5% prélevé - 1% remboursé = 0.5% net
-  var taux=rechType==='national'?0.01:0.005;
+  var taux=rechType==='national'?(S.taux.rechNat/100):(S.taux.rechInter/100);
   var frais=Math.round(e*taux);
   var cashback=rechType==='international'?Math.round(e*0.01):0;
   var benef=Math.round(c-e-frais);
@@ -1656,7 +1674,7 @@ function saveRech() {
   var note=document.getElementById('rechNote').value.trim();
   if(isNaN(e)||e<=0){toast('❌ Entrez le montant envoyé');return;}
   if(isNaN(c)||c<=0){toast('❌ Entrez la valeur crypto');return;}
-  var taux=rechType==='national'?0.01:0.005;
+  var taux=rechType==='national'?(S.taux.rechNat/100):(S.taux.rechInter/100);
   var frais=Math.round(e*taux);
   var cashback=rechType==='international'?Math.round(e*0.01):0;
   var benef=Math.round(c-e-frais);
@@ -2130,15 +2148,26 @@ function renderCfg() {
     +'<div class="set-row"><div><div class="set-lbl">Changer le PIN</div><div class="set-sub">PIN : '+(S.pin?'••••':'—')+'</div></div>'
     +'<button class="btn-sm btn-ghost" onclick="changePin()">Modifier</button></div></div>'
 
-    +'<div class="section-lbl">Taux appliqués</div>'
+    +'<div class="section-lbl">Taux appliqués (modifiables)</div>'
     +'<div class="card">'
-    +'<div class="ir"><span class="il">Commission dépôt</span><span class="iv c-green">5%</span></div>'
-    +'<div class="ir"><span class="il">Commission retrait</span><span class="iv c-blue">2%</span></div>'
-    +'<div class="ir"><span class="il">Frais opérateur</span><span class="iv c-warn">1% (dépôts + retraits)</span></div>'
-    +'<div class="ir"><span class="il">Frais Wave rechargement</span><span class="iv c-warn">1.5%</span></div>'
-    +'<div class="div"></div>'
-    +'<div class="ir"><span class="il" style="font-weight:700">Net dépôt</span><span class="iv c-green">+4%</span></div>'
-    +'<div class="ir"><span class="il" style="font-weight:700">Net retrait</span><span class="iv c-blue">+1%</span></div>'
+    +'<div style="font-size:11px;color:var(--t2);margin-bottom:12px">Si Wave change ses conditions, ajuste les taux ici. Les journées déjà archivées gardent leurs anciens calculs.</div>'
+    +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">'
+    +'<div class="fgrp"><label class="flbl">Comm. dépôt (%)</label><input class="finp" type="number" step="0.1" id="cfgTauxDep" value="'+S.taux.commDep+'" inputmode="decimal"></div>'
+    +'<div class="fgrp"><label class="flbl">Comm. retrait (%)</label><input class="finp" type="number" step="0.1" id="cfgTauxRet" value="'+S.taux.commRet+'" inputmode="decimal"></div>'
+    +'<div class="fgrp"><label class="flbl">Frais opérateur (%)</label><input class="finp" type="number" step="0.1" id="cfgTauxOp" value="'+S.taux.fraisOp+'" inputmode="decimal"></div>'
+    +'<div class="fgrp"><label class="flbl">Rech. national (%)</label><input class="finp" type="number" step="0.1" id="cfgTauxNat" value="'+S.taux.rechNat+'" inputmode="decimal"></div>'
+    +'<div class="fgrp"><label class="flbl">Rech. inter net (%)</label><input class="finp" type="number" step="0.1" id="cfgTauxInter" value="'+S.taux.rechInter+'" inputmode="decimal"></div>'
+    +'</div>'
+    +'<div class="ir"><span class="il" style="font-weight:700">Net dépôt</span><span class="iv c-green">+'+(S.taux.commDep-S.taux.fraisOp)+'%</span></div>'
+    +'<div class="ir"><span class="il" style="font-weight:700">Net retrait</span><span class="iv c-blue">+'+(S.taux.commRet-S.taux.fraisOp)+'%</span></div>'
+    +'<button class="btn-primary" style="margin-top:10px" onclick="saveTaux()">💾 Enregistrer les taux</button>'
+    +'</div>'
+
+    +'<div class="section-lbl">Alerte capital</div>'
+    +'<div class="card">'
+    +'<div style="font-size:11px;color:var(--t2);margin-bottom:12px">Si ton fonds de roulement (Pré-paiement + Wave) descend sous ce seuil, une alerte s\'affiche sur l\'accueil. Mets 0 pour désactiver.</div>'
+    +'<div class="fgrp"><label class="flbl">Seuil d\'alerte (FCFA)</label><input class="finp" type="number" id="cfgSeuil" value="'+(S.seuilCapital||'')+'" placeholder="ex: 800 000" inputmode="numeric"></div>'
+    +'<button class="btn-primary" onclick="saveSeuil()">💾 Enregistrer le seuil</button>'
     +'</div>'
 
     +'<div class="section-lbl">🤖 Intelligence Artificielle</div>'
@@ -2162,6 +2191,25 @@ function saveApiKey() {
   if(!key.startsWith('AIza')){toast('❌ Clé invalide — doit commencer par AIza');return;}
   S.apiKey=key; saveState(); renderCfg();
   toast('✅ Clé API Gemini enregistrée — IA activée !');
+}
+function saveTaux() {
+  var champs=[['cfgTauxDep','commDep'],['cfgTauxRet','commRet'],['cfgTauxOp','fraisOp'],['cfgTauxNat','rechNat'],['cfgTauxInter','rechInter']];
+  var nouveaux={};
+  for (var i=0;i<champs.length;i++) {
+    var el=document.getElementById(champs[i][0]); if(!el) return;
+    var v=parseFloat(el.value);
+    if (isNaN(v)||v<0||v>100) { toast('❌ Taux invalide : '+el.value); return; }
+    nouveaux[champs[i][1]]=v;
+  }
+  S.taux=nouveaux; saveState(); renderCfg(); renderHome(); renderSaisie();
+  toast('✅ Taux enregistrés');
+}
+function saveSeuil() {
+  var el=document.getElementById('cfgSeuil'); if(!el) return;
+  var v=parseFloat(el.value);
+  S.seuilCapital=(!isNaN(v)&&v>0)?v:0;
+  saveState(); renderCfg(); renderHome();
+  toast(S.seuilCapital>0?'🔔 Alerte activée sous '+fmtF(S.seuilCapital):'🔕 Alerte capital désactivée');
 }
 function toggleApiKeyVisibility() {
   var inp=document.getElementById('cfgApiKey'); if(!inp) return;
@@ -2255,7 +2303,13 @@ function importJSON(event) {
       if(!data.principal||!data.journeesArchivees){toast('❌ Fichier JSON invalide');return;}
       S=data;
       if(!S.rechargements) S.rechargements=[];
+      if(!S.prisesPerso) S.prisesPerso=[];
       if(!S.journee) S.journee={date:todayStr(),fondsDepart:null,ajustements:[],bilan14:null,cloture:null};
+      if(!S.taux) S.taux={commDep:5,commRet:2,fraisOp:1,rechNat:1,rechInter:0.5};
+      if(!S.seuilCapital) S.seuilCapital=0;
+      if(!S.objectifMois) S.objectifMois=0;
+      if(!S.lastBackupTs) S.lastBackupTs=0;
+      if(!S.pinLockUntil) S.pinLockUntil=0;
       saveState(); refreshAll(); closeModal('modalSave');
       toast('✅ Données restaurées — '+S.journeesArchivees.length+' journées');
     } catch(err){toast('❌ Erreur lors de la restauration');}
@@ -2468,7 +2522,7 @@ function runIA() {
     +(isCur?'- Projection fin de mois à ce rythme : '+projection+' FCFA\n':'')
     +(S.objectifMois>0?'- Objectif mensuel : '+Math.round(S.objectifMois)+' FCFA\n':'')
     +'- Historique total (tous mois confondus) : '+S.journeesArchivees.length+' journées\n'
-    +'- Taux commission : 5% dépôts, 2% retraits, 1% frais opérateur\n\n'
+    +'- Taux commission : '+S.taux.commDep+'% dépôts, '+S.taux.commRet+'% retraits, '+S.taux.fraisOp+'% frais opérateur\n\n'
     +(question
       ? 'Question du gérant : « '+question+' »\n\nRéponds directement à sa question de façon pratique et concrète, en te basant sur les données du mois ci-dessus. Réponds en français, sois bref et utile.'
       : 'Fais une analyse courte et pratique de ce mois en 4 points max : tendances, points forts, points à améliorer, et 2 conseils concrets. Sois direct et utile. Réponds en français.');
