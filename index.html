@@ -445,7 +445,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 
     <div class="page" id="pg-surplus">
       <div class="surp-hero">
-        <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--purple);font-weight:700;margin-bottom:6px">⚡ Calculateur de Surplus</div>
+        <div style="font-size:9px;letter-spacing:2px;text-transform:uppercase;color:var(--purple);font-weight:700;margin-bottom:6px">⚡ Calculateur d'écart — Surplus / Manquant</div>
         <div class="fgrp" style="margin-top:12px">
           <label class="flbl">Caisse réelle (FCFA)</label>
           <input class="finp" type="number" id="caisseInp" placeholder="ex: 1 050 000" inputmode="numeric" oninput="calcSurplus()">
@@ -454,7 +454,8 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
         <div class="ir"><span class="il" style="font-weight:700">Résultat</span><span id="surplusResult" style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700">— FCFA</span></div>
         <button class="btn-primary" style="margin-top:14px" onclick="saveSurplus()">💾 Enregistrer</button>
       </div>
-      <div class="sh"><h3>⚡ Historique surplus</h3></div>
+      <div id="surplusStats"></div>
+      <div class="sh"><h3>⚡ Historique des écarts</h3></div>
       <div id="surplusList"></div>
     </div>
 
@@ -506,7 +507,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
     <button class="nbtn" onclick="showPage('pg-saisie',this)" id="nav1"><span class="ni">✏️</span>Saisie</button>
     <button class="nbtn" onclick="showPage('pg-hist',this)" id="nav2"><span class="ni">📋</span>Historique</button>
     <button class="nbtn" onclick="showPage('pg-rech',this)" id="nav3"><span class="ni">🔄</span>Recharge</button>
-    <button class="nbtn" onclick="showPage('pg-surplus',this)" id="nav4"><span class="ni">⚡</span>Surplus</button>
+    <button class="nbtn" onclick="showPage('pg-surplus',this)" id="nav4"><span class="ni">⚡</span>Écarts</button>
     <button class="nbtn" onclick="showPage('pg-dep',this)" id="nav5"><span class="ni">💸</span>Dépenses</button>
     <button class="nbtn" onclick="showPage('pg-stats',this)" id="nav6"><span class="ni">📊</span>Stats</button>
     <button class="nbtn" onclick="showPage('pg-cfg',this)" id="nav7"><span class="ni">⚙️</span>Config</button>
@@ -1449,7 +1450,7 @@ function valider(id) {
     if(diff>10) statut='surplus'; else if(diff<-10) statut='manquant';
     S.principal.solde=pVal;
     for(var i=0;i<S.wallets.length;i++) S.wallets[i].solde=wVals[i];
-    if (statut==='surplus') {
+    if (statut==='surplus'||statut==='manquant') {
       S.surplusHist.push({id:Date.now(), montant:Math.round(diff), ts:Date.now(), tranche:id,
         caisse:Math.round(totalReel), attendu:Math.round(soldeAttendu)});
     }
@@ -1761,19 +1762,39 @@ function saveSurplus() {
   var ci=document.getElementById('caisseInp');if(ci)ci.value='';
   var sr=document.getElementById('surplusResult');if(sr){sr.textContent='— FCFA';sr.style.color='var(--purple)';}
   renderSurplusList();
-  toast((caisse-attendu)>=0?'⚡ Surplus enregistré !':'⚠️ Déficit enregistré');
+  toast((caisse-attendu)>=0?'⚡ Surplus enregistré !':'🚨 Manquant enregistré');
 }
 function renderSurplusList() {
   var el=document.getElementById('surplusList'); if(!el) return;
-  if(S.surplusHist.length===0){el.innerHTML='<div class="empty"><div class="empty-icon">⚡</div><div class="empty-tit">Aucun surplus</div></div>';return;}
+  var st=document.getElementById('surplusStats');
+  if(S.surplusHist.length===0){
+    if(st) st.innerHTML='';
+    el.innerHTML='<div class="empty"><div class="empty-icon">⚡</div><div class="empty-tit">Aucun écart enregistré</div><div>Les surplus et manquants détectés aux bilans apparaissent ici</div></div>';
+    return;
+  }
+  var tSurp=0,tManq=0;
+  for(var i=0;i<S.surplusHist.length;i++){
+    if(S.surplusHist[i].montant>=0) tSurp+=S.surplusHist[i].montant;
+    else tManq+=-S.surplusHist[i].montant;
+  }
+  if(st){
+    st.innerHTML='<div class="hist-stats" style="margin-bottom:10px">'
+      +'<div class="hist-stats-title">📊 Bilan des écarts</div>'
+      +'<div class="hsr"><span class="hsl">⚡ Total surplus</span><span class="hsv" style="color:var(--purple)">+'+fmtF(tSurp)+'</span></div>'
+      +'<div class="hsr"><span class="hsl">🚨 Total manquants</span><span class="hsv c-red">-'+fmtF(tManq)+'</span></div>'
+      +'<div class="hsr"><span class="hsl" style="font-weight:700">Net</span><span class="hsv" style="color:'+((tSurp-tManq)>=0?'var(--purple)':'var(--red2)')+'">'+((tSurp-tManq)>=0?'+':'')+fmtF(tSurp-tManq)+'</span></div>'
+      +'</div>';
+  }
   var html='';
   for(var i=S.surplusHist.length-1;i>=0;i--){
     var s=S.surplusHist[i];
-    html+='<div class="card-sm" style="display:flex;align-items:center;gap:12px">'
-        +'<div style="width:36px;height:36px;border-radius:10px;background:'+(s.montant>=0?'var(--prd)':'var(--rrd)')+';display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">'+(s.montant>=0?'⚡':'⚠️')+'</div>'
+    var isS=s.montant>=0;
+    var trLbl=s.tranche==='14h'?'Bilan 14H':s.tranche==='00h'?'Clôture 00H':'Contrôle manuel';
+    html+='<div class="card-sm" style="display:flex;align-items:center;gap:12px;border-left:3px solid '+(isS?'rgba(177,151,252,0.4)':'rgba(255,77,109,0.4)')+'">'
+        +'<div style="width:36px;height:36px;border-radius:10px;background:'+(isS?'var(--prd)':'var(--rrd)')+';display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">'+(isS?'⚡':'🚨')+'</div>'
         +'<div style="flex:1"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-weight:700;font-size:12px">'+fmtDate(s.ts)+' '+fmtTime(s.ts)+'</span>'
-        +'<span style="font-family:\'DM Mono\',monospace;font-weight:700;color:'+(s.montant>=0?'var(--purple)':'var(--red2)')+'">'+( s.montant>=0?'+':'')+fmtF(s.montant)+'</span></div>'
-        +'<div style="font-size:10px;color:var(--t3);margin-top:2px">Caisse: '+fmtF(s.caisse||0)+' · Attendu: '+fmtF(s.attendu||0)+'</div></div>'
+        +'<span style="font-family:\'DM Mono\',monospace;font-weight:700;color:'+(isS?'var(--purple)':'var(--red2)')+'">'+(isS?'+':'')+fmtF(s.montant)+'</span></div>'
+        +'<div style="font-size:10px;color:var(--t3);margin-top:2px"><span class="badge '+(isS?'badge-surplus':'badge-manquant')+'" style="margin-right:6px">'+(isS?'⚡ Surplus':'🚨 Manquant')+'</span>'+trLbl+' · Caisse: '+fmtF(s.caisse||0)+' · Attendu: '+fmtF(s.attendu||0)+'</div></div>'
         +'<button class="btn-sm btn-danger" onclick="delSurplus('+s.id+')">🗑️</button></div>';
   }
   el.innerHTML=html;
@@ -2028,6 +2049,41 @@ function renderStats() {
       +'<div style="font-family:\'DM Mono\',monospace;font-size:15px;font-weight:700;color:var(--red2)">'+fmt(worst.gainNet+(worst.benefCrypto||0))+'</div>'
       +'<div style="font-size:10px;color:var(--t3);margin-top:3px">'+worst.dateShort+'</div></div>':'')
       +'</div>';
+  }
+
+  // ── MOUVEMENTS & ÉCARTS DU MOIS (traçabilité) ──
+  var mApports=0,mRetraits=0,ajListM=[];
+  for(var i=0;i<jm.length;i++){
+    var ajs2=jm[i].ajustements||[];
+    for(var k=0;k<ajs2.length;k++){
+      var a2=ajs2[k];
+      if(a2.type==='apport') mApports+=a2.montant; else mRetraits+=a2.montant;
+      ajListM.push({date:jm[i].dateShort,type:a2.type,motif:a2.motif,montant:a2.montant});
+    }
+  }
+  var mSurp=0,mManq=0;
+  for(var i=0;i<jm.length;i++){
+    if(jm[i].diff>0) mSurp+=jm[i].diff;
+    else if(jm[i].diff<0) mManq+=-jm[i].diff;
+  }
+  if(ajListM.length>0||mSurp>0||mManq>0||(persoCap+persoBen)>0){
+    html+='<div class="card" style="margin-bottom:10px">'
+      +'<div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">💱 Mouvements &amp; écarts — '+moisLbl+'</div>'
+      +'<div class="ir"><span class="il">➕ Apports de fonds</span><span class="iv c-green">+'+fmtF(mApports)+'</span></div>'
+      +'<div class="ir"><span class="il">➖ Retraits / prises sur caisse</span><span class="iv c-red">-'+fmtF(mRetraits)+'</span></div>'
+      +'<div class="ir"><span class="il">👤 Prises perso 💼 capital</span><span class="iv" style="color:var(--purple)">-'+fmtF(persoCap)+'</span></div>'
+      +'<div class="ir"><span class="il">👤 Prises perso 📈 bénéfices</span><span class="iv" style="color:var(--purple)">-'+fmtF(persoBen)+'</span></div>'
+      +'<div class="ir"><span class="il">⚡ Surplus constatés</span><span class="iv" style="color:var(--purple)">+'+fmtF(mSurp)+'</span></div>'
+      +'<div class="ir"><span class="il">🚨 Manquants constatés</span><span class="iv c-red">-'+fmtF(mManq)+'</span></div>';
+    if(ajListM.length>0){
+      html+='<div style="height:1px;background:var(--b2);margin:8px 0"></div>'
+        +'<div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin-bottom:6px">Détail des ajustements ('+ajListM.length+')</div>';
+      for(var i=0;i<ajListM.length;i++){
+        var am=ajListM[i];
+        html+='<div class="jour-row"><span class="jour-row-lbl">'+am.date+' · '+(am.type==='apport'?'➕':'➖')+' '+esc(am.motif)+'</span><span class="jour-row-val" style="color:'+(am.type==='apport'?'var(--green2)':'var(--red2)')+'">'+(am.type==='apport'?'+':'-')+fmtF(am.montant)+'</span></div>';
+      }
+    }
+    html+='</div>';
   }
 
   // ── GRAPHIQUES DU MOIS ──
