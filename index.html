@@ -1780,9 +1780,8 @@ function renderSurplusList() {
   if(st){
     st.innerHTML='<div class="hist-stats" style="margin-bottom:10px">'
       +'<div class="hist-stats-title">📊 Bilan des écarts</div>'
-      +'<div class="hsr"><span class="hsl">⚡ Total surplus</span><span class="hsv" style="color:var(--purple)">+'+fmtF(tSurp)+'</span></div>'
-      +'<div class="hsr"><span class="hsl">🚨 Total manquants</span><span class="hsv c-red">-'+fmtF(tManq)+'</span></div>'
-      +'<div class="hsr"><span class="hsl" style="font-weight:700">Net</span><span class="hsv" style="color:'+((tSurp-tManq)>=0?'var(--purple)':'var(--red2)')+'">'+((tSurp-tManq)>=0?'+':'')+fmtF(tSurp-tManq)+'</span></div>'
+      +'<div class="hsr"><span class="hsl">⚡ Total surplus</span><span class="hsv" style="color:var(--purple)">'+fmtF(tSurp)+'</span></div>'
+      +'<div class="hsr"><span class="hsl">🚨 Total manquants</span><span class="hsv c-red">'+fmtF(tManq)+'</span></div>'
       +'</div>';
   }
   var html='';
@@ -1790,12 +1789,17 @@ function renderSurplusList() {
     var s=S.surplusHist[i];
     var isS=s.montant>=0;
     var trLbl=s.tranche==='14h'?'Bilan 14H':s.tranche==='00h'?'Clôture 00H':'Contrôle manuel';
-    html+='<div class="card-sm" style="display:flex;align-items:center;gap:12px;border-left:3px solid '+(isS?'rgba(177,151,252,0.4)':'rgba(255,77,109,0.4)')+'">'
-        +'<div style="width:36px;height:36px;border-radius:10px;background:'+(isS?'var(--prd)':'var(--rrd)')+';display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0">'+(isS?'⚡':'🚨')+'</div>'
-        +'<div style="flex:1"><div style="display:flex;justify-content:space-between;align-items:center"><span style="font-weight:700;font-size:12px">'+fmtDate(s.ts)+' '+fmtTime(s.ts)+'</span>'
-        +'<span style="font-family:\'DM Mono\',monospace;font-weight:700;color:'+(isS?'var(--purple)':'var(--red2)')+'">'+(isS?'+':'')+fmtF(s.montant)+'</span></div>'
-        +'<div style="font-size:10px;color:var(--t3);margin-top:2px"><span class="badge '+(isS?'badge-surplus':'badge-manquant')+'" style="margin-right:6px">'+(isS?'⚡ Surplus':'🚨 Manquant')+'</span>'+trLbl+' · Caisse: '+fmtF(s.caisse||0)+' · Attendu: '+fmtF(s.attendu||0)+'</div></div>'
-        +'<button class="btn-sm btn-danger" onclick="delSurplus('+s.id+')">🗑️</button></div>';
+    html+='<div class="card-sm" style="border-left:3px solid '+(isS?'rgba(177,151,252,0.4)':'rgba(255,77,109,0.4)')+'">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
+        +'<span style="font-weight:700;font-size:12px">'+fmtDate(s.ts)+' · '+fmtTime(s.ts)+'</span>'
+        +'<span style="font-family:\'DM Mono\',monospace;font-weight:700;font-size:14px;white-space:nowrap;color:'+(isS?'var(--purple)':'var(--red2)')+'">'+fmtF(Math.abs(s.montant))+'</span></div>'
+        +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-top:6px">'
+        +'<span class="badge '+(isS?'badge-surplus':'badge-manquant')+'">'+(isS?'⚡ Surplus':'🚨 Manquant')+'</span>'
+        +'<span style="font-size:10px;color:var(--t3)">'+trLbl+'</span></div>'
+        +'<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--t3);margin-top:8px;border-top:1px solid var(--b1);padding-top:8px">'
+        +'<span>Caisse : '+fmt(s.caisse||0)+'</span><span>Attendu : '+fmt(s.attendu||0)+'</span></div>'
+        +'<div style="text-align:right;margin-top:8px"><button class="btn-sm btn-danger" onclick="delSurplus('+s.id+')">🗑️ Supprimer</button></div>'
+        +'</div>';
   }
   el.innerHTML=html;
 }
@@ -2069,18 +2073,18 @@ function renderStats() {
   if(ajListM.length>0||mSurp>0||mManq>0||(persoCap+persoBen)>0){
     html+='<div class="card" style="margin-bottom:10px">'
       +'<div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">💱 Mouvements &amp; écarts — '+moisLbl+'</div>'
-      +'<div class="ir"><span class="il">➕ Apports de fonds</span><span class="iv c-green">+'+fmtF(mApports)+'</span></div>'
-      +'<div class="ir"><span class="il">➖ Retraits / prises sur caisse</span><span class="iv c-red">-'+fmtF(mRetraits)+'</span></div>'
-      +'<div class="ir"><span class="il">👤 Prises perso 💼 capital</span><span class="iv" style="color:var(--purple)">-'+fmtF(persoCap)+'</span></div>'
-      +'<div class="ir"><span class="il">👤 Prises perso 📈 bénéfices</span><span class="iv" style="color:var(--purple)">-'+fmtF(persoBen)+'</span></div>'
-      +'<div class="ir"><span class="il">⚡ Surplus constatés</span><span class="iv" style="color:var(--purple)">+'+fmtF(mSurp)+'</span></div>'
-      +'<div class="ir"><span class="il">🚨 Manquants constatés</span><span class="iv c-red">-'+fmtF(mManq)+'</span></div>';
+      +'<div class="ir"><span class="il">➕ Apports de fonds</span><span class="iv c-green">'+fmtF(mApports)+'</span></div>'
+      +'<div class="ir"><span class="il">➖ Retraits / prises sur caisse</span><span class="iv c-red">'+fmtF(mRetraits)+'</span></div>'
+      +'<div class="ir"><span class="il">👤 Prises perso 💼 capital</span><span class="iv" style="color:var(--purple)">'+fmtF(persoCap)+'</span></div>'
+      +'<div class="ir"><span class="il">👤 Prises perso 📈 bénéfices</span><span class="iv" style="color:var(--purple)">'+fmtF(persoBen)+'</span></div>'
+      +'<div class="ir"><span class="il">⚡ Surplus constatés</span><span class="iv" style="color:var(--purple)">'+fmtF(mSurp)+'</span></div>'
+      +'<div class="ir"><span class="il">🚨 Manquants constatés</span><span class="iv c-red">'+fmtF(mManq)+'</span></div>';
     if(ajListM.length>0){
       html+='<div style="height:1px;background:var(--b2);margin:8px 0"></div>'
         +'<div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin-bottom:6px">Détail des ajustements ('+ajListM.length+')</div>';
       for(var i=0;i<ajListM.length;i++){
         var am=ajListM[i];
-        html+='<div class="jour-row"><span class="jour-row-lbl">'+am.date+' · '+(am.type==='apport'?'➕':'➖')+' '+esc(am.motif)+'</span><span class="jour-row-val" style="color:'+(am.type==='apport'?'var(--green2)':'var(--red2)')+'">'+(am.type==='apport'?'+':'-')+fmtF(am.montant)+'</span></div>';
+        html+='<div class="jour-row"><span class="jour-row-lbl" style="margin-right:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+am.date+' · '+(am.type==='apport'?'➕':'➖')+' '+esc(am.motif)+'</span><span class="jour-row-val" style="white-space:nowrap;flex-shrink:0;color:'+(am.type==='apport'?'var(--green2)':'var(--red2)')+'">'+fmtF(am.montant)+'</span></div>';
       }
     }
     html+='</div>';
