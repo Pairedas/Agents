@@ -467,9 +467,16 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 
     <div class="page" id="pg-dep">
       <div class="sh" style="margin-bottom:14px">
-        <h3>💸 Dépenses</h3>
-        <span class="sh-link" onclick="openModal('modalDep')">+ Ajouter</span>
+        <h3>💸 Mouvements</h3>
+        <span class="sh-link" onclick="openModal('modalDep')">+ Dépense</span>
       </div>
+      <div class="ptabs" id="depTabs">
+        <button class="ptab" onclick="setDepPeriod('semaine')">Sem.</button>
+        <button class="ptab on" onclick="setDepPeriod('mois')">Mois</button>
+        <button class="ptab" onclick="setDepPeriod('annee')">Année</button>
+        <button class="ptab" onclick="setDepPeriod('tout')">Tout</button>
+      </div>
+      <div id="depMouvements"></div>
       <div style="background:linear-gradient(135deg,rgba(255,77,109,0.08),rgba(177,151,252,0.08));border:1px solid rgba(255,77,109,0.2);border-radius:var(--r12);padding:12px 14px;margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
         <div>
           <div style="font-size:12px;font-weight:700;color:var(--red2)">👤 Prise personnelle</div>
@@ -514,7 +521,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
     <button class="nbtn" onclick="showPage('pg-hist',this)" id="nav2"><span class="ni">📋</span>Historique</button>
     <button class="nbtn" onclick="showPage('pg-rech',this)" id="nav3"><span class="ni">🔄</span>Recharge</button>
     <button class="nbtn" onclick="showPage('pg-surplus',this)" id="nav4"><span class="ni">⚡</span>Écarts</button>
-    <button class="nbtn" onclick="showPage('pg-dep',this)" id="nav5"><span class="ni">💸</span>Dépenses</button>
+    <button class="nbtn" onclick="showPage('pg-dep',this)" id="nav5"><span class="ni">💸</span>Mouvements</button>
     <button class="nbtn" onclick="showPage('pg-stats',this)" id="nav6"><span class="ni">📊</span>Stats</button>
     <button class="nbtn" onclick="showPage('pg-cfg',this)" id="nav7"><span class="ni">⚙️</span>Config</button>
   </div>
@@ -1885,29 +1892,83 @@ function savePrisePerso() {
   renderDep(); renderHome(); renderSaisie();
   toast('👤 Prise perso ('+(ppSource==='capital'?'💼 capital':'📈 bénéfices')+') : -'+fmtF(m));
 }
+function setDepPeriod(p) { S.depPeriod=p; saveState(); renderDep(); }
 function renderDep() {
-  var totalBusiness=0; for(var i=0;i<S.depenses.length;i++) totalBusiness+=S.depenses[i].montant;
-  // Prises perso séparées par source : capital vs bénéfices (commissions)
+  var period=S.depPeriod||'mois';
+  var startP=period==='tout'?0:getStartOf(period);
+  var pLbl=period==='semaine'?'Cette semaine':period==='mois'?'Ce mois':period==='annee'?'Cette année':'Tout';
+  // Synchroniser les onglets
+  var order=['semaine','mois','annee','tout'];
+  var tbs=document.querySelectorAll('#depTabs .ptab');
+  for(var i=0;i<tbs.length;i++) tbs[i].className=(order[i]===period)?'ptab on':'ptab';
+
+  // Filtrer dépenses et prises perso sur la période
+  var deps=[], prises=[];
+  for(var i=0;i<S.depenses.length;i++){ if(S.depenses[i].ts>=startP) deps.push(S.depenses[i]); }
+  if(S.prisesPerso){for(var i=0;i<S.prisesPerso.length;i++){ if(S.prisesPerso[i].ts>=startP) prises.push(S.prisesPerso[i]); }}
+
+  var totalBusiness=0; for(var i=0;i<deps.length;i++) totalBusiness+=deps[i].montant;
   var totalPersoCap=0, totalPersoBen=0;
-  if(S.prisesPerso){for(var i=0;i<S.prisesPerso.length;i++){
-    if(S.prisesPerso[i].source==='capital') totalPersoCap+=S.prisesPerso[i].montant;
-    else totalPersoBen+=S.prisesPerso[i].montant;
-  }}
-  var totalBenef=0; for(var i=0;i<S.journeesArchivees.length;i++) totalBenef+=S.journeesArchivees[i].gainNet+(S.journeesArchivees[i].benefCrypto||0);
+  for(var i=0;i<prises.length;i++){
+    if(prises[i].source==='capital') totalPersoCap+=prises[i].montant;
+    else totalPersoBen+=prises[i].montant;
+  }
+  var journees=getJourneesFiltered(period);
+  var totalBenef=0; for(var i=0;i<journees.length;i++) totalBenef+=journees[i].gainNet+(journees[i].benefCrypto||0);
   var dt=document.getElementById('depTotal');if(dt)dt.textContent=fmt(totalBusiness);
   var dpt=document.getElementById('depPersoTotal');if(dpt)dpt.textContent=fmt(totalPersoCap+totalPersoBen);
   var dps=document.getElementById('depPersoSplit');if(dps)dps.textContent='💼 '+fmt(totalPersoCap)+' · 📈 '+fmt(totalPersoBen);
-  // Seules les prises sur bénéfices réduisent le restant des commissions —
-  // les prises sur capital ne touchent pas aux bénéfices
   var dr=document.getElementById('depRest');if(dr)dr.textContent=fmt(Math.max(0,totalBenef-totalBusiness-totalPersoBen));
-  var el=document.getElementById('depList'); if(!el) return;
 
+  // ── CARTE MOUVEMENTS & ÉCARTS DE LA PÉRIODE ──
+  var mApports=0,mRetraits=0,ajList=[];
+  for(var i=0;i<journees.length;i++){
+    var ajs=journees[i].ajustements||[];
+    for(var k=0;k<ajs.length;k++){
+      if(ajs[k].type==='apport') mApports+=ajs[k].montant; else mRetraits+=ajs[k].montant;
+      ajList.push({date:journees[i].dateShort,type:ajs[k].type,motif:ajs[k].motif,montant:ajs[k].montant});
+    }
+  }
+  // Ajustements de la journée EN COURS (pas encore archivée)
+  for(var k=0;k<S.journee.ajustements.length;k++){
+    var aj=S.journee.ajustements[k];
+    if(aj.type==='apport') mApports+=aj.montant; else mRetraits+=aj.montant;
+    ajList.push({date:'Auj.',type:aj.type,motif:aj.motif,montant:aj.montant});
+  }
+  var mSurp=0,mManq=0;
+  for(var i=0;i<journees.length;i++){
+    if(journees[i].diff>0) mSurp+=journees[i].diff;
+    else if(journees[i].diff<0) mManq+=-journees[i].diff;
+  }
+  var mv=document.getElementById('depMouvements');
+  if(mv){
+    if(ajList.length>0||mSurp>0||mManq>0){
+      var mvHtml='<div class="card" style="margin-bottom:10px">'
+        +'<div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">💱 Mouvements &amp; écarts — '+pLbl+'</div>'
+        +'<div class="ir"><span class="il">➕ Apports de fonds</span><span class="iv c-green">'+fmtF(mApports)+'</span></div>'
+        +'<div class="ir"><span class="il">➖ Retraits / prises sur caisse</span><span class="iv c-red">'+fmtF(mRetraits)+'</span></div>'
+        +'<div class="ir"><span class="il">⚡ Surplus constatés</span><span class="iv" style="color:var(--purple)">'+fmtF(mSurp)+'</span></div>'
+        +'<div class="ir"><span class="il">🚨 Manquants constatés</span><span class="iv c-red">'+fmtF(mManq)+'</span></div>';
+      if(ajList.length>0){
+        mvHtml+='<div style="height:1px;background:var(--b2);margin:8px 0"></div>'
+          +'<div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin-bottom:6px">Détail des ajustements ('+ajList.length+')</div>';
+        for(var i=0;i<ajList.length;i++){
+          var am=ajList[i];
+          mvHtml+='<div class="jour-row"><span class="jour-row-lbl" style="margin-right:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+am.date+' · '+(am.type==='apport'?'➕':'➖')+' '+esc(am.motif)+'</span><span class="jour-row-val" style="white-space:nowrap;flex-shrink:0;color:'+(am.type==='apport'?'var(--green2)':'var(--red2)')+'">'+fmtF(am.montant)+'</span></div>';
+        }
+      }
+      mvHtml+='</div>';
+      mv.innerHTML=mvHtml;
+    } else mv.innerHTML='';
+  }
+
+  var el=document.getElementById('depList'); if(!el) return;
   var allItems=[];
-  for(var i=0;i<S.depenses.length;i++) allItems.push({type:'business',data:S.depenses[i]});
-  if(S.prisesPerso){for(var i=0;i<S.prisesPerso.length;i++) allItems.push({type:'perso',data:S.prisesPerso[i]});}
+  for(var i=0;i<deps.length;i++) allItems.push({type:'business',data:deps[i]});
+  for(var i=0;i<prises.length;i++) allItems.push({type:'perso',data:prises[i]});
   allItems.sort(function(a,b){return b.data.ts-a.data.ts;});
 
-  if(allItems.length===0){el.innerHTML='<div class="empty"><div class="empty-icon">💸</div><div class="empty-tit">Aucune dépense</div></div>';return;}
+  if(allItems.length===0){el.innerHTML='<div class="empty"><div class="empty-icon">💸</div><div class="empty-tit">Aucune dépense — '+pLbl+'</div><div>Change de période avec les onglets</div></div>';return;}
   var html='';
   for(var i=0;i<allItems.length;i++){
     var item=allItems[i];
@@ -2093,14 +2154,13 @@ function renderStats() {
       +'</div>';
   }
 
-  // ── MOUVEMENTS & ÉCARTS DU MOIS (traçabilité) ──
-  var mApports=0,mRetraits=0,ajListM=[];
+  // ── MOUVEMENTS & ÉCARTS DU MOIS (résumé compact) ──
+  var mApports=0,mRetraits=0,nbAj=0;
   for(var i=0;i<jm.length;i++){
     var ajs2=jm[i].ajustements||[];
     for(var k=0;k<ajs2.length;k++){
-      var a2=ajs2[k];
-      if(a2.type==='apport') mApports+=a2.montant; else mRetraits+=a2.montant;
-      ajListM.push({date:jm[i].dateShort,type:a2.type,motif:a2.motif,montant:a2.montant});
+      if(ajs2[k].type==='apport') mApports+=ajs2[k].montant; else mRetraits+=ajs2[k].montant;
+      nbAj++;
     }
   }
   var mSurp=0,mManq=0;
@@ -2108,24 +2168,15 @@ function renderStats() {
     if(jm[i].diff>0) mSurp+=jm[i].diff;
     else if(jm[i].diff<0) mManq+=-jm[i].diff;
   }
-  if(ajListM.length>0||mSurp>0||mManq>0||(persoCap+persoBen)>0){
+  if(nbAj>0||mSurp>0||mManq>0){
     html+='<div class="card" style="margin-bottom:10px">'
       +'<div style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--t3);margin-bottom:10px">💱 Mouvements &amp; écarts — '+moisLbl+'</div>'
       +'<div class="ir"><span class="il">➕ Apports de fonds</span><span class="iv c-green">'+fmtF(mApports)+'</span></div>'
       +'<div class="ir"><span class="il">➖ Retraits / prises sur caisse</span><span class="iv c-red">'+fmtF(mRetraits)+'</span></div>'
-      +'<div class="ir"><span class="il">👤 Prises perso 💼 capital</span><span class="iv" style="color:var(--purple)">'+fmtF(persoCap)+'</span></div>'
-      +'<div class="ir"><span class="il">👤 Prises perso 📈 bénéfices</span><span class="iv" style="color:var(--purple)">'+fmtF(persoBen)+'</span></div>'
       +'<div class="ir"><span class="il">⚡ Surplus constatés</span><span class="iv" style="color:var(--purple)">'+fmtF(mSurp)+'</span></div>'
-      +'<div class="ir"><span class="il">🚨 Manquants constatés</span><span class="iv c-red">'+fmtF(mManq)+'</span></div>';
-    if(ajListM.length>0){
-      html+='<div style="height:1px;background:var(--b2);margin:8px 0"></div>'
-        +'<div style="font-size:9px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--t3);margin-bottom:6px">Détail des ajustements ('+ajListM.length+')</div>';
-      for(var i=0;i<ajListM.length;i++){
-        var am=ajListM[i];
-        html+='<div class="jour-row"><span class="jour-row-lbl" style="margin-right:8px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+am.date+' · '+(am.type==='apport'?'➕':'➖')+' '+esc(am.motif)+'</span><span class="jour-row-val" style="white-space:nowrap;flex-shrink:0;color:'+(am.type==='apport'?'var(--green2)':'var(--red2)')+'">'+fmtF(am.montant)+'</span></div>';
-      }
-    }
-    html+='</div>';
+      +'<div class="ir"><span class="il">🚨 Manquants constatés</span><span class="iv c-red">'+fmtF(mManq)+'</span></div>'
+      +'<div style="text-align:right;margin-top:8px"><span style="font-size:11px;color:var(--gold);cursor:pointer;font-weight:600" onclick="showPage(\'pg-dep\',null)">Voir le détail ('+nbAj+' ajustements) →</span></div>'
+      +'</div>';
   }
 
   // ── GRAPHIQUES DU MOIS ──
