@@ -403,9 +403,9 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
     </div>
     <div class="tb-right">
       <div class="tb-date" id="tbDate"></div>
-      <button class="tb-btn tb-alert" id="alertBtn" onclick="openModal('modalExport')" style="display:none">📤<span class="tb-alert-dot" id="alertDot" style="display:none"></span></button>
+      <button class="tb-btn" onclick="openModal('modalIA')">🤖</button>
       <button class="tb-btn" onclick="openModal('modalExport')">📤</button>
-      <button class="tb-btn" onclick="openModal('modalSave')">💾</button>
+      <button class="tb-btn tb-alert" onclick="openModal('modalSave')">💾<span class="tb-alert-dot" id="saveDot" style="display:none"></span></button>
       <button class="tb-btn" onclick="lockApp()">🔒</button>
     </div>
   </div>
@@ -509,7 +509,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
     <div class="page" id="pg-stats">
       <div class="sh" style="margin-bottom:14px">
         <h3>📊 Statistiques</h3>
-        <button class="btn-sm" style="background:var(--prd);color:var(--purple);border:1px solid rgba(177,151,252,0.3)" onclick="openModal('modalIA')">🤖 Analyse IA</button>
+        <button class="btn-sm" style="background:var(--prd);color:var(--purple);border:1px solid rgba(177,151,252,0.3)" onclick="openModal('modalIA')">🤖 Assistant IA</button>
       </div>
       <div id="statsBody"></div>
     </div>
@@ -622,6 +622,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
   <div class="modal-box">
     <div class="modal-handle"></div>
     <div class="modal-title">💾 Sauvegarde / Restauration<button class="modal-close" onclick="closeModal('modalSave')">✕</button></div>
+    <div id="saveInfo" style="font-size:11px;font-weight:700;margin-bottom:10px"></div>
     <p style="font-size:12px;color:var(--t2);margin-bottom:16px">Sauvegardez toutes vos données en cas de perte ou pour transférer sur un autre appareil.</p>
     <button class="btn-primary" onclick="exportJSON()" style="margin-bottom:10px">📥 Sauvegarder (JSON)</button>
     <div class="div"></div>
@@ -706,12 +707,18 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 <div class="modal-ov" id="modalIA" onclick="modalOvClick(event,'modalIA')">
   <div class="modal-box" style="max-height:92vh;overflow-y:auto">
     <div class="modal-handle"></div>
-    <div class="modal-title">🤖 Analyse IA<button class="modal-close" onclick="closeModal('modalIA')">✕</button></div>
-    <div id="iaContent">
-      <p style="font-size:12px;color:var(--t2);margin-bottom:4px">Gemini analyse <strong>le mois affiché dans Stats</strong> et répond à tes questions.</p>
-      <div class="fgrp" style="margin-top:12px"><label class="flbl">💬 Ta question (optionnel)</label>
-      <textarea class="finp" id="iaQuestion" rows="2" placeholder="ex: Comment augmenter mes bénéfices ? Pourquoi mes frais sont si élevés ?" style="resize:none"></textarea></div>
-      <button class="btn-primary" onclick="runIA()">🚀 Analyser</button>
+    <div class="modal-title">🤖 Assistant IA<button class="modal-close" onclick="closeModal('modalIA')">✕</button></div>
+    <p style="font-size:11px;color:var(--t2);margin-bottom:10px">L'assistant connaît toutes tes données : journées, crédits, écarts, dépenses, capital…</p>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px">
+      <button class="btn-sm btn-gold" onclick="iaQuick('Fais une analyse complète de mon activité ce mois-ci : tendances, points forts, points faibles et 2 conseils concrets.')">📊 Analyse du mois</button>
+      <button class="btn-sm btn-ghost" onclick="iaQuick('Quels crédits dois-je relancer en priorité et pourquoi ?')">🤝 Crédits</button>
+      <button class="btn-sm btn-ghost" onclick="iaQuick('Comment réduire mes manquants et améliorer mes bénéfices ?')">💡 Conseils</button>
+    </div>
+    <div id="iaChatBox" style="max-height:45vh;overflow-y:auto;margin-bottom:10px"></div>
+    <div id="iaContent"></div>
+    <div style="display:flex;gap:8px">
+      <input class="finp" type="text" id="iaInput" placeholder="Pose ta question..." style="flex:1" onkeydown="if(event.key==='Enter')envoyerIA()">
+      <button class="btn-primary" style="width:auto;padding:12px 18px" onclick="envoyerIA()">➤</button>
     </div>
   </div>
 </div>
@@ -1038,6 +1045,10 @@ function openModal(id) {
   if (id==='modalAjustement') setAdjType('apport');
   if (id==='modalPrisePerso') setPPSource('capital');
   if (id==='modalCredit') { setCreditType('pret'); setCreditCaisse(true); }
+  if (id==='modalSave') {
+    var si=document.getElementById('saveInfo');
+    if(si) si.innerHTML=S.lastBackupTs?('🕒 Dernière sauvegarde : '+fmtDate(S.lastBackupTs)+' à '+fmtTime(S.lastBackupTs)):'<span style="color:var(--warn)">⚠️ Aucune sauvegarde JSON encore faite</span>';
+  }
   var m=document.getElementById(id); if(m) m.className='modal-ov open';
 }
 function closeModal(id) { var m=document.getElementById(id); if(m) m.className='modal-ov'; }
@@ -2841,140 +2852,151 @@ function saveJourPassee() {
   toast('✅ Journée du '+dateStr+' ajoutée — +'+fmtF(benefNet));
 }
 
-// ── IA ANALYSE ──
-// Analyse le MOIS AFFICHÉ dans Stats (pas le total global) et permet
-// de poser des questions libres à Gemini sur les données du mois
-function iaFormHtml(btnLbl) {
-  return '<div class="fgrp" style="margin-top:12px"><label class="flbl">💬 Ta question (optionnel)</label>'
-    +'<textarea class="finp" id="iaQuestion" rows="2" placeholder="ex: Comment augmenter mes bénéfices ? Pourquoi mes frais sont si élevés ?" style="resize:none"></textarea></div>'
-    +'<button class="btn-primary" onclick="runIA()">'+btnLbl+'</button>';
-}
-function runIA() {
-  var ic=document.getElementById('iaContent'); if(!ic) return;
+""// ── ASSISTANT IA GLOBAL ──
+// L'assistant reçoit à chaque question un résumé COMPLET des données de
+// l'app (journée en cours, mois, global, crédits, écarts, dépenses,
+// capital, objectifs, taux) + les derniers échanges de la conversation
+var iaMsgs=[];
+function buildIAData() {
+  var now=new Date(), L=[];
+  var gj=gainJour(), fd=getFondsDepart(), bc=benefCryptoJour();
+  L.push("=== AUJOURD'HUI ("+S.journee.date+") ===");
+  L.push('Fonds de départ ajusté: '+Math.round(fd)+' F | Gains Wave nets: '+Math.round(gj.gainNet)+' F | Crypto: '+Math.round(bc)+' F | Solde attendu: '+Math.round(soldeAttenduJour())+' F');
+  L.push('Bilan 14H: '+(S.journee.bilan14?'fait':'pas encore fait')+' | Clôture: '+(S.journee.cloture?'faite':'pas encore faite'));
+  L.push('Capital de roulement actuel: '+Math.round(totalRoulement())+' F'+(S.seuilCapital>0?' (seuil alerte: '+Math.round(S.seuilCapital)+' F)':''));
 
-  if(!S.apiKey){
-    ic.innerHTML='<div style="background:var(--wrd);border:1px solid rgba(252,196,25,0.2);border-radius:var(--r12);padding:14px;margin-bottom:12px">'
-      +'<div style="font-size:13px;font-weight:700;color:var(--warn);margin-bottom:6px">⚠️ Clé API manquante</div>'
-      +'<div style="font-size:12px;color:var(--t2)">Va dans <strong>Config → Intelligence Artificielle</strong> et entre ta clé API Gemini pour activer l\'IA.</div>'
-      +'</div>'
-      +'<button class="btn-primary" onclick="showPage(\'pg-cfg\',null);closeModal(\'modalIA\')">⚙️ Aller dans Config</button>';
-    return;
-  }
-
-  var qEl=document.getElementById('iaQuestion');
-  var question=qEl?qEl.value.trim():'';
-
-  // Données du mois affiché dans Stats
-  if(statsY===null) statsResetMonth();
-  var startM=new Date(statsY,statsM,1).getTime();
-  var endM=new Date(statsY,statsM+1,0,23,59,59,999).getTime();
-  var moisLbl=new Date(statsY,statsM,1).toLocaleDateString('fr-FR',{month:'long',year:'numeric'});
-  var jm=[];
+  var startM=new Date(now.getFullYear(),now.getMonth(),1).getTime();
+  var startPrev=new Date(now.getFullYear(),now.getMonth()-1,1).getTime();
+  var mB=0,mBrut=0,mFrais=0,mC=0,mN=0,prevB=0,mSurp=0,mManq=0;
+  var gB=0,gC=0;
   for(var i=0;i<S.journeesArchivees.length;i++){
-    var jj=S.journeesArchivees[i];
-    if(jj.ts>=startM&&jj.ts<=endM) jm.push(jj);
+    var j=S.journeesArchivees[i];
+    gB+=j.gainNet; gC+=(j.benefCrypto||0);
+    if(j.ts>=startM){
+      mB+=j.gainNet;mBrut+=j.gainBrut;mFrais+=j.frais;mC+=(j.benefCrypto||0);mN++;
+      if(j.diff>0)mSurp+=j.diff; else if(j.diff<0)mManq+=-j.diff;
+    } else if(j.ts>=startPrev) prevB+=j.gainNet+(j.benefCrypto||0);
   }
-  var nbM=jm.length;
-  if(nbM===0){
-    ic.innerHTML='<p style="color:var(--t2);font-size:12px;margin-bottom:10px">Aucune journée enregistrée en <strong>'+moisLbl+'</strong>. Change de mois dans Stats (flèches ◀ ▶) ou reviens après quelques journées.</p>'+iaFormHtml('🚀 Analyser');
+  var moy=mN>0?(mB+mC)/mN:0;
+  var daysInM=new Date(now.getFullYear(),now.getMonth()+1,0).getDate();
+  L.push('=== MOIS EN COURS ===');
+  L.push(mN+' journées | Bénéfice net réel: '+Math.round(mB+mC)+' F (Wave '+Math.round(mB)+' + crypto '+Math.round(mC)+') | Brut: '+Math.round(mBrut)+' F | Frais: '+Math.round(mFrais)+' F | Moyenne/j: '+Math.round(moy)+' F');
+  L.push('Projection fin de mois: '+Math.round((mB+mC)+moy*Math.max(0,daysInM-now.getDate()))+' F | Mois précédent: '+Math.round(prevB)+' F');
+  L.push('Écarts du mois — surplus: '+Math.round(mSurp)+' F, manquants: '+Math.round(mManq)+' F');
+  L.push('=== GLOBAL === '+S.journeesArchivees.length+' journées au total | Bénéfice net réel cumulé: '+Math.round(gB+gC)+' F');
+
+  if(S.credits&&S.credits.length>0){
+    var lo=[],tD=0,tJ=0,nbR=0;
+    for(var i=0;i<S.credits.length;i++){
+      var c=S.credits[i], r=creditRestant(c);
+      if(r>0){
+        var ret=c.echeanceTs&&Date.now()>c.echeanceTs;
+        if(ret)nbR++;
+        if(c.type==='pret')tD+=r; else tJ+=r;
+        lo.push((c.type==='pret'?'me doit':'je dois')+' '+c.nom+': '+Math.round(r)+' F'+(c.echeanceTs?' (échéance '+fmtDate(c.echeanceTs)+(ret?' EN RETARD':'')+')':''));
+      }
+    }
+    L.push('=== CRÉDITS & DETTES === On me doit: '+Math.round(tD)+' F | Je dois: '+Math.round(tJ)+' F | En retard: '+nbR);
+    for(var i=0;i<lo.length;i++) L.push('- '+lo[i]);
+  }
+
+  var dCat={},dTot=0,pC=0,pB=0;
+  for(var i=0;i<S.depenses.length;i++){
+    if(S.depenses[i].ts>=startM){ dTot+=S.depenses[i].montant; dCat[S.depenses[i].cat]=(dCat[S.depenses[i].cat]||0)+S.depenses[i].montant; }
+  }
+  if(S.prisesPerso){for(var i=0;i<S.prisesPerso.length;i++){
+    if(S.prisesPerso[i].ts>=startM){ if(S.prisesPerso[i].source==='capital')pC+=S.prisesPerso[i].montant; else pB+=S.prisesPerso[i].montant; }
+  }}
+  L.push('=== SORTIES DU MOIS === Dépenses business: '+Math.round(dTot)+' F | Prises perso: '+Math.round(pC)+' F (capital) + '+Math.round(pB)+' F (bénéfices)');
+  for(var k in dCat){ if(dCat.hasOwnProperty(k)) L.push('- '+k+': '+Math.round(dCat[k])+' F'); }
+
+  L.push('=== PARAMÈTRES === Objectif/jour: '+Math.round(S.objectif||0)+' F | Objectif/mois: '+Math.round(S.objectifMois||0)+' F | Taux: dépôt '+S.taux.commDep+'%, retrait '+S.taux.commRet+'%, frais opérateur '+S.taux.fraisOp+'%');
+  return L.join('\n');
+}
+function fmtIAText(text) {
+  var lines=String(text).split('\n'), h='';
+  for(var i=0;i<lines.length;i++){
+    var l=lines[i].trim();
+    if(!l) h+='<br>';
+    else if(l.match(/^[#\*]{1,3}\s/)||l.match(/^\d\./)) h+='<div style="color:var(--text);font-weight:700;margin-top:6px">'+esc(l.replace(/^[#\*\s]+/,''))+'</div>';
+    else h+='<div>'+esc(l).replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>')+'</div>';
+  }
+  return h;
+}
+function renderIAChat() {
+  var box=document.getElementById('iaChatBox'); if(!box) return;
+  var h='';
+  for(var i=0;i<iaMsgs.length;i++){
+    var m=iaMsgs[i];
+    if(m.role==='user'){
+      h+='<div style="display:flex;justify-content:flex-end;margin-bottom:8px"><div style="max-width:85%;background:var(--gd);border:1px solid rgba(245,166,35,0.25);border-radius:12px 12px 2px 12px;padding:8px 12px;font-size:12px">'+esc(m.text)+'</div></div>';
+    } else if(m.role==='wait'){
+      h+='<div style="display:flex;margin-bottom:8px"><div style="background:var(--s2);border-radius:12px;padding:8px 14px;font-size:12px;color:var(--t3)">🤖 réfléchit…</div></div>';
+    } else {
+      h+='<div style="display:flex;margin-bottom:8px"><div style="max-width:90%;background:var(--grd);border:1px solid rgba(0,212,160,0.2);border-radius:12px 12px 12px 2px;padding:8px 12px;font-size:12px;color:var(--t2);line-height:1.6">'+fmtIAText(m.text)+'</div></div>';
+    }
+  }
+  box.innerHTML=h;
+  box.scrollTop=box.scrollHeight;
+}
+function iaQuick(q) {
+  var inp=document.getElementById('iaInput');
+  if(inp) inp.value=q;
+  envoyerIA();
+}
+function envoyerIA() {
+  var ic=document.getElementById('iaContent');
+  if(!S.apiKey){
+    if(ic) ic.innerHTML='<div style="background:var(--wrd);border:1px solid rgba(252,196,25,0.2);border-radius:var(--r12);padding:12px;margin-bottom:10px">'
+      +'<div style="font-size:12px;font-weight:700;color:var(--warn)">⚠️ Clé API manquante</div>'
+      +'<div style="font-size:11px;color:var(--t2);margin-top:4px">Va dans <strong>Config → Intelligence Artificielle</strong> et entre ta clé Gemini.</div></div>';
     return;
   }
+  if(ic) ic.innerHTML='';
+  var inp=document.getElementById('iaInput');
+  var q=inp?inp.value.trim():'';
+  if(!q){toast('❌ Écris ta question');return;}
+  if(inp) inp.value='';
 
-  ic.innerHTML='<div style="text-align:center;padding:20px"><div style="font-size:28px;margin-bottom:10px">🤖</div><div style="font-size:13px;color:var(--t2)">Analyse de '+moisLbl+' en cours...</div></div>';
-
-  var totalBenef=0,totalCrypto=0,totalDep=0,totalRet=0,totalFrais=0;
-  var jours=['Lun','Mar','Mer','Jeu','Ven','Sam','Dim'],jourVals=[0,0,0,0,0,0,0],jourCounts=[0,0,0,0,0,0,0];
-  var best=jm[0],worst=jm[0];
-  for(var i=0;i<nbM;i++){
-    var j=jm[i];
-    var v=j.gainNet+(j.benefCrypto||0);
-    totalBenef+=j.gainNet; totalCrypto+=(j.benefCrypto||0); totalFrais+=j.frais;
-    totalDep+=j.totalDep; totalRet+=j.totalRet;
-    var dayJs=new Date(j.ts).getDay(); var dayIdx=dayJs===0?6:dayJs-1;
-    jourVals[dayIdx]+=v; jourCounts[dayIdx]++;
-    if(v>(best.gainNet+(best.benefCrypto||0))) best=j;
-    if(v<(worst.gainNet+(worst.benefCrypto||0))) worst=j;
+  // Historique de conversation (3 derniers échanges max)
+  var hist='';
+  var prev=[];
+  for(var i=0;i<iaMsgs.length;i++){
+    if(iaMsgs[i].role==='user') prev.push('Q: '+iaMsgs[i].text);
+    else if(iaMsgs[i].role==='ia') prev.push('R: '+iaMsgs[i].text);
   }
-  var moy=(totalBenef+totalCrypto)/nbM;
-  var persoCap=0,persoBen=0;
-  if(S.prisesPerso){for(var i=0;i<S.prisesPerso.length;i++){var pp=S.prisesPerso[i];
-    if(pp.ts>=startM&&pp.ts<=endM){if(pp.source==='capital')persoCap+=pp.montant;else persoBen+=pp.montant;}}}
+  if(prev.length>6) prev=prev.slice(prev.length-6);
+  if(prev.length>0) hist='CONVERSATION PRÉCÉDENTE:\n'+prev.join('\n')+'\n\n';
 
-  var bestDayIdx=0;
-  for(var i=0;i<7;i++){if(jourCounts[i]>0&&(jourVals[i]/jourCounts[i])>(jourCounts[bestDayIdx]>0?jourVals[bestDayIdx]/jourCounts[bestDayIdx]:0))bestDayIdx=i;}
+  iaMsgs.push({role:'user',text:q});
+  iaMsgs.push({role:'wait',text:''});
+  renderIAChat();
 
-  var now=new Date();
-  var isCur=(statsY===now.getFullYear()&&statsM===now.getMonth());
-  var daysInM=new Date(statsY,statsM+1,0).getDate();
-  var projection=Math.round((totalBenef+totalCrypto)+moy*Math.max(0,daysInM-now.getDate()));
+  var prompt='Tu es l\'assistant financier intégré de PAIREDAS, une agence mobile money Wave en Afrique de l\'Ouest. Tu as accès à TOUTES les données de l\'application ci-dessous (elles sont fraîches et exactes). Réponds en français, de façon directe, pratique et brève. Montants en FCFA.\n\n'
+    +'DONNÉES ACTUELLES DE L\'APP:\n'+buildIAData()+'\n\n'
+    +hist
+    +'QUESTION DU GÉRANT: '+q;
 
-  var prompt='Tu es un conseiller financier expert en agences mobile money Wave en Afrique de l\'Ouest.\n\n'
-    +'Données PAIREDAS pour le mois de '+moisLbl+' UNIQUEMENT :\n'
-    +'- Journées enregistrées ce mois : '+nbM+'\n'
-    +'- Bénéfice net Wave du mois : '+Math.round(totalBenef)+' FCFA\n'
-    +'- Résultat crypto du mois : '+Math.round(totalCrypto)+' FCFA\n'
-    +'- Bénéfice net réel du mois : '+Math.round(totalBenef+totalCrypto)+' FCFA\n'
-    +'- Moyenne par jour : '+Math.round(moy)+' FCFA\n'
-    +'- Frais opérateur du mois : '+Math.round(totalFrais)+' FCFA\n'
-    +'- Volume dépôts du mois : '+Math.round(totalDep)+' FCFA\n'
-    +'- Volume retraits du mois : '+Math.round(totalRet)+' FCFA\n'
-    +'- Meilleure journée du mois : +'+Math.round(best.gainNet+(best.benefCrypto||0))+' FCFA ('+best.dateShort+')\n'
-    +'- Pire journée du mois : '+Math.round(worst.gainNet+(worst.benefCrypto||0))+' FCFA ('+worst.dateShort+')\n'
-    +'- Meilleur jour de semaine : '+jours[bestDayIdx]+'\n'
-    +'- Prises perso du mois : '+Math.round(persoCap)+' FCFA sur capital, '+Math.round(persoBen)+' FCFA sur bénéfices\n'
-    +(isCur?'- Projection fin de mois à ce rythme : '+projection+' FCFA\n':'')
-    +(S.objectifMois>0?'- Objectif mensuel : '+Math.round(S.objectifMois)+' FCFA\n':'')
-    +'- Historique total (tous mois confondus) : '+S.journeesArchivees.length+' journées\n'
-    +'- Taux commission : '+S.taux.commDep+'% dépôts, '+S.taux.commRet+'% retraits, '+S.taux.fraisOp+'% frais opérateur\n\n'
-    +(question
-      ? 'Question du gérant : « '+question+' »\n\nRéponds directement à sa question de façon pratique et concrète, en te basant sur les données du mois ci-dessus. Réponds en français, sois bref et utile.'
-      : 'Fais une analyse courte et pratique de ce mois en 4 points max : tendances, points forts, points à améliorer, et 2 conseils concrets. Sois direct et utile. Réponds en français.');
-
-  var geminiUrl = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key=' + S.apiKey;
-
+  var geminiUrl='https://generativelanguage.googleapis.com/v1beta/models/gemini-3.1-flash-lite:generateContent?key='+S.apiKey;
   fetch(geminiUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      contents: [{
-        parts: [{
-          text: prompt
-        }]
-      }]
-    })
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})
   })
-  .then(function(r) { return r.json(); })
-  .then(function(data) {
-    if(data.error) {
-      throw new Error(data.error.message);
-    }
-
-    var text = data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts && data.candidates[0].content.parts[0]
-               ? data.candidates[0].content.parts[0].text
-               : 'Erreur de format de réponse.';
-
-    var lines=text.split('\n');
-    var html='<div style="margin-bottom:12px;padding:10px;background:var(--grd);border:1px solid rgba(0,212,160,0.2);border-radius:var(--r8)">'
-      +'<div style="font-size:10px;font-weight:700;color:var(--green2);letter-spacing:1px;margin-bottom:6px">🤖 GEMINI — '+moisLbl.toUpperCase()+'</div>'
-      +(question?'<div style="font-size:11px;color:var(--t3);margin-bottom:8px;font-style:italic">💬 « '+esc(question)+' »</div>':'')
-      +'<div style="font-size:12px;color:var(--t2);line-height:1.6">';
-    for(var i=0;i<lines.length;i++){
-      var l=lines[i].trim();
-      if(!l) html+='<br>';
-      else if(l.match(/^[#\*]{1,3}\s/)||l.match(/^\d\./)) html+='<div style="color:var(--text);font-weight:700;margin-top:8px">'+l.replace(/^[#\*\s]+/,'')+'</div>';
-      else html+='<div>'+l.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')+'</div>';
-    }
-    html+='</div></div>';
-    html+=iaFormHtml('💬 Poser une autre question');
-    ic.innerHTML=html;
+  .then(function(r){ return r.json(); })
+  .then(function(data){
+    if(data.error) throw new Error(data.error.message);
+    var text=data.candidates&&data.candidates[0]&&data.candidates[0].content&&data.candidates[0].content.parts&&data.candidates[0].content.parts[0]
+      ? data.candidates[0].content.parts[0].text : 'Erreur de format de réponse.';
+    iaMsgs.pop();
+    iaMsgs.push({role:'ia',text:text});
+    renderIAChat();
   })
   .catch(function(err){
-    console.error("Erreur Gemini API:", err);
-    ic.innerHTML='<p style="color:var(--red2);font-size:12px">❌ Erreur lors de l\'analyse. Vérifie ta connexion ou ta clé API.</p>'
-      +'<div style="font-size:9px;color:var(--red);margin-bottom:10px">'+esc(err.message)+'</div>'
-      +iaFormHtml('🔄 Réessayer');
+    console.error('Erreur Gemini API:', err);
+    iaMsgs.pop();
+    iaMsgs.push({role:'ia',text:'❌ Erreur : '+err.message+'\nVérifie ta connexion ou ta clé API, puis réessaie.'});
+    renderIAChat();
   });
 }
 
@@ -3003,6 +3025,8 @@ function refreshAll() {
   var now=new Date();
   var de=document.getElementById('tbDate');
   if(de) de.textContent=now.toLocaleDateString('fr-FR',{day:'2-digit',month:'short',year:'numeric'});
+  var sd=document.getElementById('saveDot');
+  if(sd) sd.style.display=(S.journeesArchivees.length>0&&(!S.lastBackupTs||(Date.now()-S.lastBackupTs)>7*24*3600*1000))?'block':'none';
   renderTBar(); renderHome();
 }
 
@@ -3022,6 +3046,9 @@ setInterval(function(){
 // ── INIT ──
 (function(){
   loadState();
+  // Demander le stockage persistant : empêche Android/Chrome de supprimer
+  // les données de l'app quand le téléphone manque d'espace
+  try { if(navigator.storage&&navigator.storage.persist) navigator.storage.persist(); } catch(e) {}
   if(!S.pinSetup||!S.pin){
     S.pinStep='setup1';
     var lbl=document.getElementById('pinLbl');
