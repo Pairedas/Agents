@@ -454,6 +454,12 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
         <div class="ir"><span class="il" style="font-weight:700">Résultat</span><span id="surplusResult" style="font-family:'DM Mono',monospace;font-size:18px;font-weight:700">— FCFA</span></div>
         <button class="btn-primary" style="margin-top:14px" onclick="saveSurplus()">💾 Enregistrer</button>
       </div>
+      <div class="ptabs" id="ecartTabs">
+        <button class="ptab on" onclick="setEcartPeriod('semaine',this)">Sem.</button>
+        <button class="ptab" onclick="setEcartPeriod('mois',this)">Mois</button>
+        <button class="ptab" onclick="setEcartPeriod('annee',this)">Année</button>
+        <button class="ptab" onclick="setEcartPeriod('tout',this)">Tout</button>
+      </div>
       <div id="surplusStats"></div>
       <div class="sh"><h3>⚡ Historique des écarts</h3></div>
       <div id="surplusList"></div>
@@ -1783,29 +1789,42 @@ function saveSurplus() {
   renderSurplusList();
   toast((caisse-attendu)>=0?'⚡ Surplus enregistré !':'🚨 Manquant enregistré');
 }
+function setEcartPeriod(p,btn) {
+  S.ecartPeriod=p; saveState();
+  renderSurplusList();
+}
 function renderSurplusList() {
   var el=document.getElementById('surplusList'); if(!el) return;
   var st=document.getElementById('surplusStats');
-  if(S.surplusHist.length===0){
+  var period=S.ecartPeriod||'semaine';
+  // Synchroniser les onglets avec la période mémorisée
+  var order=['semaine','mois','annee','tout'];
+  var btns=document.querySelectorAll('#ecartTabs .ptab');
+  for(var i=0;i<btns.length;i++) btns[i].className=(order[i]===period)?'ptab on':'ptab';
+  var start=period==='tout'?0:getStartOf(period);
+  var liste=[];
+  for(var i=0;i<S.surplusHist.length;i++){ if(S.surplusHist[i].ts>=start) liste.push(S.surplusHist[i]); }
+  var pLbl=period==='semaine'?'Cette semaine':period==='mois'?'Ce mois':period==='annee'?'Cette année':'Tout';
+  if(liste.length===0){
     if(st) st.innerHTML='';
-    el.innerHTML='<div class="empty"><div class="empty-icon">⚡</div><div class="empty-tit">Aucun écart enregistré</div><div>Les surplus et manquants détectés aux bilans apparaissent ici</div></div>';
+    el.innerHTML='<div class="empty"><div class="empty-icon">⚡</div><div class="empty-tit">Aucun écart — '+pLbl+'</div><div>Change de période avec les onglets ci-dessus</div></div>';
     return;
   }
   var tSurp=0,tManq=0;
-  for(var i=0;i<S.surplusHist.length;i++){
-    if(S.surplusHist[i].montant>=0) tSurp+=S.surplusHist[i].montant;
-    else tManq+=-S.surplusHist[i].montant;
+  for(var i=0;i<liste.length;i++){
+    if(liste[i].montant>=0) tSurp+=liste[i].montant;
+    else tManq+=-liste[i].montant;
   }
   if(st){
     st.innerHTML='<div class="hist-stats" style="margin-bottom:10px">'
-      +'<div class="hist-stats-title">📊 Bilan des écarts</div>'
+      +'<div class="hist-stats-title">📊 Bilan des écarts — '+pLbl+' ('+liste.length+')</div>'
       +'<div class="hsr"><span class="hsl">⚡ Total surplus</span><span class="hsv" style="color:var(--purple)">'+fmtF(tSurp)+'</span></div>'
       +'<div class="hsr"><span class="hsl">🚨 Total manquants</span><span class="hsv c-red">'+fmtF(tManq)+'</span></div>'
       +'</div>';
   }
   var html='';
-  for(var i=S.surplusHist.length-1;i>=0;i--){
-    var s=S.surplusHist[i];
+  for(var i=liste.length-1;i>=0;i--){
+    var s=liste[i];
     var isS=s.montant>=0;
     var trLbl=s.tranche==='14h'?'Bilan 14H':s.tranche==='00h'?'Clôture 00H':'Contrôle manuel';
     html+='<div class="card-sm" style="border-left:3px solid '+(isS?'rgba(177,151,252,0.4)':'rgba(255,77,109,0.4)')+'">'
