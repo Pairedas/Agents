@@ -765,6 +765,25 @@ function loadState() {
         S.cryptoFix1 = true;
         saveState();
       }
+      // Réparation one-shot : avant la mise à jour « Écarts », seuls les
+      // surplus étaient enregistrés dans l'historique des écarts. On
+      // reconstruit les manquants passés depuis les bilans archivés
+      // (qui contiennent caisse réelle, attendu, écart et heure).
+      if (!S.ecartFix1) {
+        for (var ei = 0; ei < S.journeesArchivees.length; ei++) {
+          var ej = S.journeesArchivees[ei];
+          var tranches = [['14h', ej.bilan14], ['00h', ej.cloture]];
+          for (var et = 0; et < tranches.length; et++) {
+            var eb = tranches[et][1];
+            if (eb && eb.statut === 'manquant' && eb.diff) {
+              S.surplusHist.push({id: Date.now() + ei * 10 + et, montant: Math.round(eb.diff), ts: eb.ts || ej.ts, tranche: tranches[et][0], caisse: Math.round(eb.totalReel || 0), attendu: Math.round(eb.soldeAttendu || 0)});
+            }
+          }
+        }
+        S.surplusHist.sort(function(a, b) { return a.ts - b.ts; });
+        S.ecartFix1 = true;
+        saveState();
+      }
       if (!S.journee) S.journee = {date:todayStr(), fondsDepart:null, ajustements:[], bilan14:null, cloture:null};
       if (!S.journee.ajustements) S.journee.ajustements = [];
       if (S.journee.date !== todayStr()) {
