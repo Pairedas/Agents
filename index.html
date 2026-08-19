@@ -193,6 +193,17 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 .sbadge-w{background:var(--grd);color:var(--green2);}
 .sol-inp{width:100%;background:var(--s1);border:1.5px solid var(--b2);border-radius:var(--r8);padding:11px 12px;color:var(--text);font-family:'DM Mono',monospace;font-size:15px;outline:none;-webkit-appearance:none;transition:border-color 0.2s;}
 .sol-inp:focus{border-color:var(--gold);}
+/* Jalon dont l'heure est passée mais qui n'a PAS été validé. Volontairement
+   distinct du vert « validé » : un pré-remplissage ne doit jamais avoir
+   l'air d'un jalon fait. Pointillés + pulsation douce. */
+.tpill.tattente{border:1.5px dashed var(--warn)!important;color:var(--warn)!important;
+  background:rgba(217,119,6,.08)!important;animation:attPulse 2.4s ease-in-out infinite;}
+.tpill.tattente .tpill-dot{background:var(--warn)!important;}
+@keyframes attPulse{0%,100%{opacity:1}50%{opacity:.62}}
+.att-bloc{border:1.5px dashed var(--warn);background:rgba(217,119,6,.08);
+  border-radius:10px;padding:11px 12px;margin-bottom:12px}
+.att-titre{font-size:12px;font-weight:700;color:var(--warn);margin-bottom:4px}
+.att-txt{font-size:11px;color:var(--t2);line-height:1.5}
 /* Soldes modifiables sur la carte « fonds de départ ». Volontairement
    discrets : ils doivent se lire comme des chiffres, pas comme un
    formulaire, tant qu'on n'y touche pas. */
@@ -1442,7 +1453,26 @@ function buildSaisieForm(id, lblDep, lblRet, btnTxt, isCloture) {
   // Clôture : pré-remplie avec les cumuls du bilan 14H — on ne fait qu'ajouter la suite
   var preDep='', preRet='';
   if (id==='00h'&&S.journee.bilan14) { preDep=S.journee.bilan14.dep; preRet=S.journee.bilan14.ret; }
-  var html='<div class="card" style="background:var(--bg2);border:1px solid var(--b1)">'
+
+    /* ══ JALON EN ATTENTE — annonce explicite ══
+       Les volumes et les soldes Wave sont pré-remplis par la synchronisation.
+       Le prépaiement, lui, n'est lisible nulle part : c'est son crédit chez
+       le bookmaker. On le dit franchement plutôt que de laisser croire que
+       le jalon est fait. Tant qu'il n'a pas cliqué, RIEN n'est écrit dans
+       son état financier. */
+    var att='';
+    if (jalonEnAttente(id)) {
+      var quoi = (id==='00h')
+        ? "La cl\u00f4ture n'a pas \u00e9t\u00e9 faite."
+        : "Le point de 14 h n'a pas \u00e9t\u00e9 valid\u00e9.";
+      att = '<div class="att-bloc">'
+          + '<div class="att-titre">\u23f3 ' + quoi + " Rien n'a \u00e9t\u00e9 valid\u00e9 \u00e0 ta place.</div>"
+          + '<div class="att-txt">Les volumes et tes soldes Wave sont d\u00e9j\u00e0 remplis'
+          + ' ci-dessous, avec les chiffres de la bonne p\u00e9riode. '
+          + '<b>Il ne manque que ton pr\u00e9-paiement</b> \u2014 nous ne pouvons pas le lire.'
+          + ' Tape-le, v\u00e9rifie le reste, et valide.</div></div>';
+    }
+  var html=att+'<div class="card" style="background:var(--bg2);border:1px solid var(--b1)">'
           +'<div class="fgrp"><label class="flbl">'+lblDep+'</label>'
           +'<input class="finp" type="number" id="sdep-'+id+'" placeholder="0" value="'+preDep+'" inputmode="numeric" oninput="onInput(\''+id+'\')"></div>'
           +'<div class="fgrp"><label class="flbl">'+lblRet+'</label>'
@@ -1581,6 +1611,32 @@ function onSoldeInput(id) {
     else dhtml='<div class="sblock sblock-manquant"><div class="sb-ico">🚨</div><div><div class="sb-tit">Manquant '+fmtF(Math.abs(diff))+'</div><div class="sb-desc">Vérifier les transactions</div></div></div>';
     td.innerHTML=dhtml;
   } else if(td) td.innerHTML='';
+}
+
+function jalonEnAttente(id) {
+  /* Un jalon est EN ATTENTE quand son heure est passée et qu'il n'a pas été
+     validé. Rien n'est validé automatiquement : on se contente de le dire,
+     et de pré-remplir ce qu'on sait.
+
+     Le prépaiement — son crédit chez le bookmaker — n'est lisible nulle part.
+     Valider à sa place produirait une caisse réelle amputée de plus d'un
+     million et un faux « manquant » dans son historique d'écarts. C'est
+     précisément le chiffre sur lequel il pourrait prendre une décision. */
+  try {
+    if (id === '14h') {
+      if (S.journee.bilan14) return false;          // déjà validé
+      if (!S.journee.fondsDepart) return false;     // minuit pas encore figé
+      return new Date().getHours() >= 14;
+    }
+    if (id === '00h') {
+      if (S.journee.cloture) return false;
+      if (!S.journee.fondsDepart) return false;
+      /* En attente si la journée en cours n'est pas celle d'aujourd'hui —
+         donc une journée passée jamais clôturée — ou en fin de soirée. */
+      return S.journee.date !== todayStr() || new Date().getHours() >= 23;
+    }
+  } catch(e){}
+  return false;
 }
 
 function soldeAuto(nomWallet) {
