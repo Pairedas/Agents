@@ -3183,12 +3183,64 @@ setInterval(function(){
   /* Remplit les champs de saisie. Ne touche JAMAIS un champ où tu as tapé :
      on n'écrit que si le champ est vide ou contient encore notre valeur. */
   var POSE = {};
+
+  /* Associe un portefeuille de PAIREDAS à un compte Wave, d'après son nom.
+     Sans correspondance certaine, on ne remplit rien : mieux vaut une saisie
+     manuelle qu'un solde attribué au mauvais compte. */
+  function compteDuWallet(nom){
+    var n = (nom||'').toLowerCase();
+    if (/1x|service|d[ée]p[oô]t/.test(n))  return 'depots';
+    if (/pradex|xchange|retrait/.test(n))  return 'retraits';
+    return null;
+  }
+
+  function heureLecture(sd){
+    /* Les deux comptes ne sont pas relus au même rythme : le compte dépôts
+       l'est en continu, le compte PRADEX seulement au moment d'un paiement.
+       On affiche donc la lecture la PLUS ANCIENNE des deux — c'est elle qui
+       dit à quel point le chiffre peut avoir vieilli. */
+    try {
+      var t = [sd.depots_lu_le, sd.retraits_lu_le, sd.lu_le].filter(Boolean).sort();
+      if (!t.length) return '';
+      var d = new Date(t[0]);
+      if (isNaN(d.getTime())) return '';
+      var mn = Math.round((Date.now() - d.getTime()) / 60000);
+      var h  = d.toLocaleTimeString('fr-FR', {hour:'2-digit', minute:'2-digit'});
+      if (mn >= 90)  return ' (lu à ' + h + ', il y a ' + Math.round(mn/60) + ' h)';
+      if (mn >= 10)  return ' (lu à ' + h + ', il y a ' + mn + ' min)';
+      return ' (lu à ' + h + ')';
+    } catch(e){ return ''; }
+  }
+
+  function ciblesSoldes(){
+    /* La « caisse réelle » de PAIREDAS = prépaiement + portefeuilles.
+       Le prépaiement est son crédit chez le bookmaker : nous ne le
+       connaissons pas, il reste à sa main. On ne remplit que les
+       portefeuilles Wave, et uniquement si les DEUX soldes sont connus. */
+    var out = {};
+    var sd = window.PRADEX.soldes;
+    if (!sd || !sd.complet) return out;
+    if (typeof S === 'undefined' || !S.wallets) return out;
+    ['14h','00h'].forEach(function(id){
+      S.wallets.forEach(function(w, i){
+        var c = compteDuWallet(w.nom);
+        if (c === 'depots')   out['ssol-w-'+id+'-'+i] = sd.depots;
+        if (c === 'retraits') out['ssol-w-'+id+'-'+i] = sd.retraits;
+      });
+    });
+    return out;
+  }
+
   function remplir(){
-    var l = window.PRADEX.live; if (!l) return 0;
-    var cible = {
-      'sdep-14h': l.bilan14.depots,      'sret-14h': l.bilan14.retraits,
-      'sdep-00h': l.journee.depots,      'sret-00h': l.journee.retraits
-    };
+    var l = window.PRADEX.live;
+    var cible = {};
+    if (l) {
+      cible['sdep-14h'] = l.bilan14.depots;  cible['sret-14h'] = l.bilan14.retraits;
+      cible['sdep-00h'] = l.journee.depots;  cible['sret-00h'] = l.journee.retraits;
+    }
+    var cs = ciblesSoldes();
+    for (var k in cs) cible[k] = cs[k];
+
     var n = 0;
     for (var id in cible) {
       var el = document.getElementById(id); if (!el) continue;
@@ -3197,6 +3249,7 @@ setInterval(function(){
       if (actuel === String(cible[id])) continue;
       el.value = cible[id]; POSE[id] = cible[id];
       el.dispatchEvent(new Event('input',{bubbles:true}));
+      n++;
     }
     return n;
   }
@@ -3221,11 +3274,36 @@ setInterval(function(){
         window.PRADEX.live = { depots:d.periodes.journee.depots, retraits:d.periodes.journee.retraits,
                                journee:d.periodes.journee, bilan14:d.periodes.bilan14,
                                cloture:d.periodes.cloture, date:d.date };
+        window.PRADEX.soldes = d.soldes || null;
         remplir();
         try { renderHome(); renderTBar(); if(typeof renderSaisie==='function') renderSaisie(); } catch(e){}
-        bandeau('✅ Totaux du ' + d.date + ' — dépôts '
+        var sd = d.soldes || {};
+        var txt = '✅ Totaux du ' + d.date + ' — dépôts '
           + d.periodes.journee.depots.toLocaleString('fr-FR') + ' · retraits '
-          + d.periodes.journee.retraits.toLocaleString('fr-FR'), '#16a34a');
+          + d.periodes.journee.retraits.toLocaleString('fr-FR');
+        var coul = '#16a34a';
+        if (sd.complet) {
+          /* Les soldes peuvent DATER : le compte PRADEX n'est relu qu'au
+             moment d'un paiement. On affiche donc l'heure de lecture à côté
+             du chiffre — sans elle, un solde de six heures passerait pour
+             le solde de l'instant. */
+          txt += ' · soldes ' + Number(sd.depots).toLocaleString('fr-FR')
+              +  ' / ' + Number(sd.retraits).toLocaleString('fr-FR')
+              +  heureLecture(sd);
+          /* caisse Wave n'apparaît QUE si elle a pu être calculée. Sans la
+             part « autre activité », Number(null) vaudrait 0 et afficherait
+             une caisse fausse. Mieux vaut ne rien montrer. */
+          if (sd.caisse_wave !== null && sd.caisse_wave !== undefined) {
+            txt += ' · caisse Wave ' + Number(sd.caisse_wave).toLocaleString('fr-FR');
+          }
+        }
+        if (sd.manque && sd.manque.length) {
+          /* Donnée incomplète : on le DIT, et on ne remplit pas ce qui manque.
+             Un écart calculé sur une caisse partielle serait trompeur. */
+          txt += ' · ⚠️ ' + sd.manque.join(' ; ');
+          coul = '#d97706';
+        }
+        bandeau(txt, coul);
       })
       .catch(function(){
         bandeau('⚠️ Bots injoignables — appuie ici pour vérifier la liaison', '#d97706');
