@@ -193,6 +193,14 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
 .sbadge-w{background:var(--grd);color:var(--green2);}
 .sol-inp{width:100%;background:var(--s1);border:1.5px solid var(--b2);border-radius:var(--r8);padding:11px 12px;color:var(--text);font-family:'DM Mono',monospace;font-size:15px;outline:none;-webkit-appearance:none;transition:border-color 0.2s;}
 .sol-inp:focus{border-color:var(--gold);}
+/* Soldes modifiables sur la carte « fonds de départ ». Volontairement
+   discrets : ils doivent se lire comme des chiffres, pas comme un
+   formulaire, tant qu'on n'y touche pas. */
+.fd-inp{width:110px;background:transparent;border:1px solid transparent;border-radius:6px;padding:3px 6px;color:var(--text);font-family:'DM Mono',monospace;font-size:13px;font-weight:700;text-align:right;outline:none;-webkit-appearance:none;transition:border-color .15s,background .15s;}
+.fd-inp:hover{border-color:var(--b2);}
+.fd-inp:focus{border-color:var(--gold);background:var(--s1);}
+.fd-reset{background:transparent;border:1px solid var(--b2);border-radius:6px;color:var(--warn);font-size:12px;line-height:1;padding:3px 6px;cursor:pointer;}
+.fd-reset:hover{border-color:var(--warn);}
 
 /* ═══ TOTAL PREVIEW ═══ */
 .tot-prev{display:none;background:var(--s1);border:1.5px solid var(--b2);border-radius:var(--r12);padding:14px;margin-top:10px;}
@@ -964,12 +972,32 @@ function gainJour() {
   if (!S.journee.bilan14 && !S.journee.cloture
       && window.PRADEX && window.PRADEX.live
       && (window.PRADEX.live.depots || window.PRADEX.live.retraits)) {
-    var _pxg = calcGains(window.PRADEX.live.depots||0, window.PRADEX.live.retraits||0);
-    return {gainNet:_pxg.gainNet, gainBrut:_pxg.gainBrut, frais:_pxg.frais, auto:true};
+    var _pxd = window.PRADEX.live.depots||0, _pxr = window.PRADEX.live.retraits||0;
+    var _pxg = calcGains(_pxd, _pxr);
+    return {gainNet:_pxg.gainNet, gainBrut:_pxg.gainBrut, frais:_pxg.frais,
+            volDep:_pxd, volRet:_pxr, auto:true};
   }
   if (S.journee.bilan14) { gn+=S.journee.bilan14.gainNet; gb+=S.journee.bilan14.gainBrut; f+=S.journee.bilan14.frais; }
   if (S.journee.cloture) { gn+=S.journee.cloture.gainNet; gb+=S.journee.cloture.gainBrut; f+=S.journee.cloture.frais; }
-  return {gainNet:gn, gainBrut:gb, frais:f};
+  /* ══ PRADEX 5/5 — les volumes affichés viennent d'ici, plus d'ailleurs ══
+     « Dépôts cumulés » et « Retraits cumulés » restaient à zéro tant qu'aucun
+     bilan n'était validé, alors que le bénéfice, lui, était déjà calculé sur
+     les totaux remontés par les bots. Deux chiffres justes et deux à zéro,
+     sur la même carte.
+
+     Ils sont maintenant renvoyés par gainJour(), à côté des gains qu'ils
+     produisent : impossible qu'ils divergent, c'est le même passage de code
+     qui décide des deux.
+
+     Les gains s'ADDITIONNENT (bilan 14H + clôture), les volumes s'ÉCRASENT.
+     Ce n'est pas une incohérence : à la clôture tu saisis le cumul TOTAL de
+     la journée, et `valider()` n'applique les taux qu'à l'écart depuis 14H.
+     Le volume de clôture est donc déjà le total, et la somme des gains est
+     bien celle du jour entier. Cette règle est conservée telle quelle. */
+  var vd=0, vr=0;
+  if (S.journee.bilan14) { vd=S.journee.bilan14.dep; vr=S.journee.bilan14.ret; }
+  if (S.journee.cloture) { vd=S.journee.cloture.dep; vr=S.journee.cloture.ret; }
+  return {gainNet:gn, gainBrut:gb, frais:f, volDep:vd, volRet:vr};
 }
 function benefCryptoJour() {
   // Date de la JOURNÉE en cours (pas l'horloge) : une clôture après minuit
@@ -1187,9 +1215,10 @@ function renderHome() {
         +'<div class="benef-section-title">Gains Wave</div>'
         +'<div class="benef-detail">'
         +'<div class="dr"><span class="dl">📈 Gain brut commissions</span><span class="dv c-gold">+'+fmtF(gj.gainBrut)+'</span></div>';
-    var volDep=0, volRet=0;
-    if (S.journee.bilan14) { volDep=S.journee.bilan14.dep; volRet=S.journee.bilan14.ret; }
-    if (S.journee.cloture) { volDep=S.journee.cloture.dep; volRet=S.journee.cloture.ret; }
+    /* Une seule source : les volumes viennent du même appel que les gains
+       affichés juste au-dessus. Sa saisie prime toujours — dès qu'un bilan
+       existe, gainJour() ignore les totaux automatiques. */
+    var volDep=gj.volDep||0, volRet=gj.volRet||0;
     html+='<div class="dr"><span class="dl">📥 Dépôts cumulés</span><span class="dv c-blue">'+fmtF(volDep)+'</span></div>'
         +'<div class="dr"><span class="dl">📤 Retraits cumulés</span><span class="dv c-red">'+fmtF(volRet)+'</span></div>'
         +'</div>'
@@ -1301,11 +1330,30 @@ function renderSaisie() {
       +'</div>';
 
   if (S.journee.fondsDepart) {
+    /* ══ PRADEX — SOLDES MODIFIABLES DIRECTEMENT SUR LA CARTE ══
+       Les trois soldes étaient figés une fois validés : pour corriger une
+       coquille il fallait tout ressaisir. Ils sont maintenant éditables sur
+       place. Sa valeur prime toujours ; un bouton ↺ apparaît là où une
+       valeur automatique existe, pour qu'il puisse revenir en arrière sans
+       rester coincé sur un chiffre figé. */
     var fd=S.journee.fondsDepart;
     html+='<div class="step-body"><div class="step-done-summary">'
-        +'<div class="ir"><span class="il">'+S.principal.nom+'</span><span class="iv c-blue">'+fmtF(fd.principal)+'</span></div>';
+        +'<div class="ir"><span class="il">'+S.principal.nom
+        +'<span style="opacity:.55;font-size:9px"> · saisi par toi</span></span>'
+        +'<input class="fd-inp" type="number" inputmode="numeric" value="'+fd.principal+'"'
+        +' onchange="majFondDepart(\'p\',0,this.value)"></div>';
     for (var i=0; i<fd.wallets.length; i++) {
-      html+='<div class="ir"><span class="il">📱 '+fd.wallets[i].nom+'</span><span class="iv c-green">'+fmtF(fd.wallets[i].solde)+'</span></div>';
+      var au = soldeAuto(fd.wallets[i].nom);
+      var estManuel = au!==null && Number(au)!==Number(fd.wallets[i].solde);
+      html+='<div class="ir"><span class="il">📱 '+fd.wallets[i].nom
+          +(estManuel?'<span style="opacity:.7;font-size:9px;color:var(--warn)"> · modifié à la main</span>'
+                     :(au!==null?'<span style="opacity:.55;font-size:9px"> · lu sur Wave</span>':''))
+          +'</span>'
+          +'<span style="display:flex;align-items:center;gap:4px">'
+          +(estManuel?'<button class="fd-reset" title="Revenir au solde lu sur Wave ('+fmtF(au)+')"'
+                     +' onclick="restaurerSoldeAuto('+i+')">↺</button>':'')
+          +'<input class="fd-inp" type="number" inputmode="numeric" value="'+fd.wallets[i].solde+'"'
+          +' onchange="majFondDepart(\'w\','+i+',this.value)"></span></div>';
     }
     html+='<div class="ir" style="border-top:1px solid var(--b2);margin-top:4px;padding-top:8px"><span class="il" style="font-weight:700">Total fonds de départ</span><span class="iv c-gold" style="font-size:14px">'+fmtF(fd.total)+'</span></div>'
         +'</div></div>';
@@ -1533,6 +1581,56 @@ function onSoldeInput(id) {
     else dhtml='<div class="sblock sblock-manquant"><div class="sb-ico">🚨</div><div><div class="sb-tit">Manquant '+fmtF(Math.abs(diff))+'</div><div class="sb-desc">Vérifier les transactions</div></div></div>';
     td.innerHTML=dhtml;
   } else if(td) td.innerHTML='';
+}
+
+function soldeAuto(nomWallet) {
+  /* Solde lu sur Wave pour ce portefeuille, ou null si on ne le connaît pas.
+     Même appariement par nom que le remplissage automatique — une seule règle
+     pour les deux, sinon le bouton ↺ proposerait un chiffre venu d'ailleurs. */
+  try {
+    var sd = window.PRADEX && window.PRADEX.soldes;
+    if (!sd) return null;
+    var c = (typeof compteDuWallet === 'function') ? compteDuWallet(nomWallet) : null;
+    if (c === 'depots'   && sd.depots   != null) return Number(sd.depots);
+    if (c === 'retraits' && sd.retraits != null) return Number(sd.retraits);
+  } catch(e){}
+  return null;
+}
+
+function majFondDepart(quoi, idx, valeur) {
+  /* Modification directe d'un solde du fonds de départ.
+
+     Le total est TOUJOURS recalculé à partir des parts, jamais ajusté par
+     différence : un total et des parts qui ne s'additionnent pas seraient
+     invérifiables, et c'est sur ce total que repose le solde attendu. */
+  if (!S.journee.fondsDepart) return;
+  var v = parseFloat(valeur);
+  if (isNaN(v) || v < 0) { toast('❌ Montant invalide — valeur inchangée'); renderSaisie(); return; }
+  v = Math.round(v);
+  var fd = S.journee.fondsDepart;
+  if (quoi === 'p') {
+    fd.principal = v;
+    S.principal.solde = v;
+  } else {
+    if (!fd.wallets[idx]) return;
+    fd.wallets[idx].solde = v;
+    if (S.wallets[idx]) S.wallets[idx].solde = v;
+  }
+  var t = fd.principal;
+  for (var i = 0; i < fd.wallets.length; i++) t += fd.wallets[i].solde;
+  fd.total = t;
+  saveState(); renderTBar(); renderSaisie(); renderHome();
+  toast('✏️ Fonds de départ : ' + fmtF(t));
+}
+
+function restaurerSoldeAuto(idx) {
+  /* Retour au solde lu sur Wave. Sans cette porte de sortie, une correction
+     manuelle devenait définitive et il serait resté bloqué sur un chiffre
+     figé sans comprendre pourquoi la synchronisation « ne marchait plus ». */
+  if (!S.journee.fondsDepart || !S.journee.fondsDepart.wallets[idx]) return;
+  var au = soldeAuto(S.journee.fondsDepart.wallets[idx].nom);
+  if (au === null) { toast('Aucun solde automatique disponible pour l\'instant'); return; }
+  majFondDepart('w', idx, au);
 }
 
 function validerMinuit() {
@@ -3194,6 +3292,26 @@ setInterval(function(){
     return null;
   }
 
+  function ecartRetraits(r){
+    /* Rapprochement des retraits : ce que le bot dit avoir payé, contre ce
+       que Wave a réellement débité, apparié sur l'identifiant pt-.
+       On n'affiche RIEN quand tout concorde — une alerte qui s'allume tous
+       les jours finit par ne plus être lue. Et on ne conclut pas à sa place :
+       on nomme l'écart, il décide s'il faut aller voir. */
+    try {
+      if (!r || r.fiable !== true) return '';
+      var bouts = [];
+      if (r.inconnus_du_bot && r.inconnus_du_bot.length)
+        bouts.push(r.inconnus_du_bot.length + ' paiement(s) vus sur Wave mais pas enregistrés');
+      if (r.montants_differents && r.montants_differents.length)
+        bouts.push(r.montants_differents.length + ' montant(s) qui diffèrent');
+      if (r.absents_de_wave && r.absents_de_wave.length)
+        bouts.push(r.absents_de_wave.length + ' pas encore visibles sur Wave');
+      if (!bouts.length) return '';
+      return '🔎 retraits à vérifier : ' + bouts.join(', ');
+    } catch(e){ return ''; }
+  }
+
   function heureLecture(sd){
     /* Les deux comptes ne sont pas relus au même rythme : le compte dépôts
        l'est en continu, le compte PRADEX seulement au moment d'un paiement.
@@ -3219,13 +3337,20 @@ setInterval(function(){
        portefeuilles Wave, et uniquement si les DEUX soldes sont connus. */
     var out = {};
     var sd = window.PRADEX.soldes;
-    if (!sd || !sd.complet) return out;
+    if (!sd) return out;
     if (typeof S === 'undefined' || !S.wallets) return out;
+    /* CHAQUE COMPTE EST INDÉPENDANT.
+       Avant, il fallait les DEUX soldes pour remplir quoi que ce soit : tant
+       que le compte PRADEX n'était pas lu, le solde dépôts — pourtant connu
+       et juste — restait invisible. Rien n'imposait cette solidarité : ce
+       sont deux champs distincts, et l'écart ne se calcule de toute façon
+       qu'une fois TOUS les champs remplis, prépaiement compris, qu'il saisit
+       lui-même. On remplit donc ce qu'on sait, on laisse vide ce qu'on ignore. */
     ['14h','00h'].forEach(function(id){
       S.wallets.forEach(function(w, i){
         var c = compteDuWallet(w.nom);
-        if (c === 'depots')   out['ssol-w-'+id+'-'+i] = sd.depots;
-        if (c === 'retraits') out['ssol-w-'+id+'-'+i] = sd.retraits;
+        if (c === 'depots'   && sd.depots   != null) out['ssol-w-'+id+'-'+i] = sd.depots;
+        if (c === 'retraits' && sd.retraits != null) out['ssol-w-'+id+'-'+i] = sd.retraits;
       });
     });
     return out;
@@ -3282,14 +3407,16 @@ setInterval(function(){
           + d.periodes.journee.depots.toLocaleString('fr-FR') + ' · retraits '
           + d.periodes.journee.retraits.toLocaleString('fr-FR');
         var coul = '#16a34a';
+        /* Chaque solde s'affiche dès qu'il est connu, sans attendre l'autre.
+           Les soldes peuvent DATER : le compte PRADEX n'est relu qu'au
+           démarrage du bot puis à chaque paiement. On affiche donc l'heure de
+           lecture à côté du chiffre — sans elle, un solde de six heures
+           passerait pour le solde de l'instant. */
+        var vus = [];
+        if (sd.depots   != null) vus.push('dépôt ' + Number(sd.depots).toLocaleString('fr-FR'));
+        if (sd.retraits != null) vus.push('PRADEX ' + Number(sd.retraits).toLocaleString('fr-FR'));
+        if (vus.length) txt += ' · ' + vus.join(' / ') + heureLecture(sd);
         if (sd.complet) {
-          /* Les soldes peuvent DATER : le compte PRADEX n'est relu qu'au
-             moment d'un paiement. On affiche donc l'heure de lecture à côté
-             du chiffre — sans elle, un solde de six heures passerait pour
-             le solde de l'instant. */
-          txt += ' · soldes ' + Number(sd.depots).toLocaleString('fr-FR')
-              +  ' / ' + Number(sd.retraits).toLocaleString('fr-FR')
-              +  heureLecture(sd);
           /* caisse Wave n'apparaît QUE si elle a pu être calculée. Sans la
              part « autre activité », Number(null) vaudrait 0 et afficherait
              une caisse fausse. Mieux vaut ne rien montrer. */
@@ -3303,6 +3430,8 @@ setInterval(function(){
           txt += ' · ⚠️ ' + sd.manque.join(' ; ');
           coul = '#d97706';
         }
+        var ecart = ecartRetraits(sd.rapprochement);
+        if (ecart) { txt += ' · ' + ecart; coul = '#d97706'; }
         bandeau(txt, coul);
       })
       .catch(function(){
