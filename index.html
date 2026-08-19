@@ -3150,7 +3150,20 @@ setInterval(function(){
     if (!/^https?:\/\//.test(url)) { msg.style.color='#ff6b6b'; msg.textContent="L'adresse doit commencer par https://"; return; }
     msg.style.color='#aaa'; msg.textContent='Test en cours…';
     fetch(url + '/api/journee', { headers:{'X-Pradex-Cle':cle,'ngrok-skip-browser-warning':'1'} })
-      .then(function(r){ if(!r.ok) throw new Error('refusé (' + r.status + ')'); return r.json(); })
+      .then(function(r){
+        if (!r.ok) {
+          return r.json().catch(function(){ return {}; }).then(function(j){
+            /* Message précis plutôt que « refusé » : il doit savoir laquelle
+               des trois causes s'est produite, sans tâtonner. */
+            var m = j.erreur || '';
+            if (/cle invalide|cle absente/.test(m)) throw new Error('clé refusée — recopie-la depuis le Mac');
+            if (/origine/.test(m))                  throw new Error('origine refusée — ouvre bien depuis pairedas.github.io');
+            if (/aucune cle/.test(m))               throw new Error('aucune clé sur le Mac — lance tout_appliquer.command');
+            throw new Error('refusé (' + r.status + ')' + (m ? ' — ' + m : ''));
+          });
+        }
+        return r.json();
+      })
       .then(function(d){
         ecrire({url:url, cle:cle});
         window.PRADEX.cfg = {url:url, cle:cle};
@@ -3160,7 +3173,10 @@ setInterval(function(){
       })
       .catch(function(e){
         msg.style.color='#ff6b6b';
-        msg.textContent = '❌ ' + e.message + ' — vérifie l\'adresse, la clé, et que ton Mac est allumé.';
+        var t = e.message || '';
+        if (/Failed to fetch|NetworkError|Load failed/i.test(t))
+          t = "Mac injoignable — vérifie l'adresse, que le Mac est allumé, et que le tunnel tourne.";
+        msg.textContent = '❌ ' + t;
       });
   };
 
