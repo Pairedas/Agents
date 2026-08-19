@@ -861,8 +861,25 @@ function loadState() {
         var grace = S.journee.date === hierStr() && new Date().getHours() < 4
                  && S.journee.fondsDepart && !S.journee.cloture;
         if (!grace) {
+          /* ══ PRADEX 1/4 — report automatique du fonds de départ ══
+             Avant : fondsDepart repartait à null chaque jour, à ressaisir.
+             Après : on reporte la clôture attendue de la veille, calculée
+             par TA fonction soldeAttenduJour(). Amorcé une fois par
+             « Point de minuit », tu ne le retapes plus jamais.
+             validerMinuit() reste disponible pour te recaler quand tu veux. */
+          var _pxReport = null, _pxDetail = null;
+          if (S.journee.fondsDepart) {
+            _pxReport = soldeAttenduJour();
+            _pxDetail = {principal: S.principal.solde,
+                         wallets: S.wallets.map(function(w){return {nom:w.nom, solde:w.solde};})};
+          }
           autoArchive();
-          S.journee = {date:todayStr(), fondsDepart:null, ajustements:[], bilan14:null, cloture:null};
+          S.journee = {date:todayStr(),
+                       fondsDepart: (_pxReport!==null
+                          ? {total:_pxReport, principal:(_pxDetail?_pxDetail.principal:0),
+                             wallets:(_pxDetail?_pxDetail.wallets:[]), auto:true}
+                          : null),
+                       ajustements:[], bilan14:null, cloture:null};
           saveState();
         }
       }
@@ -938,6 +955,18 @@ function getFondsDepart() {
 }
 function gainJour() {
   var gn=0, gb=0, f=0;
+  /* ══ PRADEX 2/4 — capital à jour sans clôture ══
+     Avant : gainJour() valait 0 tant qu'aucun bilan n'était enregistré,
+     donc ton capital n'était juste qu'après un geste de saisie.
+     Après : sans bilan, on calcule en direct depuis les totaux remontés
+     par les bots, avec TA fonction calcGains() et TES taux.
+     Dès que tu valides un bilan, ta saisie reprend la main. */
+  if (!S.journee.bilan14 && !S.journee.cloture
+      && window.PRADEX && window.PRADEX.live
+      && (window.PRADEX.live.depots || window.PRADEX.live.retraits)) {
+    var _pxg = calcGains(window.PRADEX.live.depots||0, window.PRADEX.live.retraits||0);
+    return {gainNet:_pxg.gainNet, gainBrut:_pxg.gainBrut, frais:_pxg.frais, auto:true};
+  }
   if (S.journee.bilan14) { gn+=S.journee.bilan14.gainNet; gb+=S.journee.bilan14.gainBrut; f+=S.journee.bilan14.frais; }
   if (S.journee.cloture) { gn+=S.journee.cloture.gainNet; gb+=S.journee.cloture.gainBrut; f+=S.journee.cloture.frais; }
   return {gainNet:gn, gainBrut:gb, frais:f};
@@ -3061,6 +3090,153 @@ setInterval(function(){
       refreshAll(); setupRappels();
     }
   }
+})();
+</script>
+
+<!-- ══════════════════════════════════════════════════════════════════════
+     PRADEX 3/4 — Liaison avec les bots (ajouté, ne modifie rien d'existant)
+
+     AUCUN SECRET DANS CE FICHIER. L'adresse et la clé sont saisies une
+     fois dans l'écran de configuration et restent dans le navigateur de
+     ce téléphone, sous la clé localStorage « pradex_cfg ». Ce dépôt est
+     public : rien de confidentiel n'y figure.
+     ═════════════════════════════════════════════════════════════════════ -->
+<div id="px-modal" style="display:none;position:fixed;inset:0;z-index:100000;background:rgba(0,0,0,.6);
+     align-items:center;justify-content:center;padding:16px">
+  <div style="background:var(--s1,#1a1d24);color:var(--t1,#fff);border-radius:16px;padding:20px;
+       max-width:420px;width:100%;font:14px system-ui;max-height:90vh;overflow:auto">
+    <h3 style="margin:0 0 6px;font-size:16px">🔗 Liaison avec tes bots</h3>
+    <p style="font-size:12px;opacity:.7;margin:0 0 14px;line-height:1.5">
+      Saisis une seule fois l'adresse de ton Mac et ta clé. Elles restent sur
+      ce téléphone et ne sont jamais envoyées sur GitHub.</p>
+    <label style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">Adresse</label>
+    <input id="px-url" placeholder="https://xxxxx.ngrok-free.dev" autocapitalize="off" autocorrect="off"
+      style="width:100%;padding:12px;font-size:15px;border-radius:10px;border:1px solid #444;
+             background:#0e1116;color:#fff;margin-bottom:12px">
+    <label style="display:block;font-size:12px;font-weight:700;margin-bottom:4px">Clé d'accès</label>
+    <input id="px-cle" placeholder="collée depuis ton Mac" autocapitalize="off" autocorrect="off"
+      style="width:100%;padding:12px;font-size:15px;border-radius:10px;border:1px solid #444;
+             background:#0e1116;color:#fff;margin-bottom:6px">
+    <div id="px-msg" style="font-size:12px;min-height:18px;margin-bottom:10px"></div>
+    <button onclick="pxTester()" style="width:100%;padding:12px;border:0;border-radius:10px;
+      background:#2563eb;color:#fff;font-weight:700;font-size:15px;margin-bottom:8px">Tester et enregistrer</button>
+    <button onclick="pxFermer()" style="width:100%;padding:10px;border:1px solid #444;border-radius:10px;
+      background:transparent;color:#aaa;font-size:14px">Fermer</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  var CLE_CFG = 'pradex_cfg';
+  window.PRADEX = { live:null, cfg:null };
+
+  function lire(){ try { return JSON.parse(localStorage.getItem(CLE_CFG)) || null; } catch(e){ return null; } }
+  function ecrire(c){ try { localStorage.setItem(CLE_CFG, JSON.stringify(c)); } catch(e){} }
+
+  window.pxOuvrir = function(){
+    var c = lire() || {};
+    document.getElementById('px-url').value = c.url || '';
+    document.getElementById('px-cle').value = c.cle || '';
+    document.getElementById('px-msg').textContent = '';
+    document.getElementById('px-modal').style.display = 'flex';
+  };
+  window.pxFermer = function(){ document.getElementById('px-modal').style.display='none'; };
+
+  window.pxTester = function(){
+    var url = document.getElementById('px-url').value.trim().replace(/\/+$/,'');
+    var cle = document.getElementById('px-cle').value.trim();
+    var msg = document.getElementById('px-msg');
+    if (!url || !cle) { msg.style.color='#ff6b6b'; msg.textContent='Remplis les deux champs.'; return; }
+    if (!/^https?:\/\//.test(url)) { msg.style.color='#ff6b6b'; msg.textContent="L'adresse doit commencer par https://"; return; }
+    msg.style.color='#aaa'; msg.textContent='Test en cours…';
+    fetch(url + '/api/journee', { headers:{'X-Pradex-Cle':cle,'ngrok-skip-browser-warning':'1'} })
+      .then(function(r){ if(!r.ok) throw new Error('refusé (' + r.status + ')'); return r.json(); })
+      .then(function(d){
+        ecrire({url:url, cle:cle});
+        window.PRADEX.cfg = {url:url, cle:cle};
+        msg.style.color='#51cf66';
+        msg.textContent = '✅ Connecté — ' + d.periodes.journee.depots.toLocaleString('fr-FR') + ' de dépôts aujourd\'hui';
+        setTimeout(function(){ pxFermer(); pxSync(true); }, 900);
+      })
+      .catch(function(e){
+        msg.style.color='#ff6b6b';
+        msg.textContent = '❌ ' + e.message + ' — vérifie l\'adresse, la clé, et que ton Mac est allumé.';
+      });
+  };
+
+  /* Remplit les champs de saisie. Ne touche JAMAIS un champ où tu as tapé :
+     on n'écrit que si le champ est vide ou contient encore notre valeur. */
+  var POSE = {};
+  function remplir(){
+    var l = window.PRADEX.live; if (!l) return 0;
+    var cible = {
+      'sdep-14h': l.bilan14.depots,      'sret-14h': l.bilan14.retraits,
+      'sdep-00h': l.journee.depots,      'sret-00h': l.journee.retraits
+    };
+    var n = 0;
+    for (var id in cible) {
+      var el = document.getElementById(id); if (!el) continue;
+      var actuel = String(el.value||'').trim();
+      if (actuel !== '' && actuel !== String(POSE[id])) continue;   // saisie manuelle : intouchable
+      if (actuel === String(cible[id])) continue;
+      el.value = cible[id]; POSE[id] = cible[id];
+      el.dispatchEvent(new Event('input',{bubbles:true}));
+    }
+    return n;
+  }
+
+  function bandeau(txt, coul){
+    var d = document.getElementById('px-bandeau');
+    if (!d) { d = document.createElement('div'); d.id='px-bandeau';
+      d.style.cssText='position:fixed;left:0;right:0;top:0;z-index:99998;padding:6px 10px;'
+        +'font:600 11px system-ui;text-align:center;color:#fff';
+      d.onclick = pxOuvrir; document.body.appendChild(d); }
+    d.style.display='block'; d.style.background=coul; d.textContent=txt;
+    setTimeout(function(){ if(d) d.style.display='none'; }, 5000);
+  }
+
+  window.pxSync = function(silencieux){
+    var c = window.PRADEX.cfg || lire();
+    if (!c) { if(!silencieux) pxOuvrir(); return Promise.resolve(); }
+    window.PRADEX.cfg = c;
+    return fetch(c.url + '/api/journee', { headers:{'X-Pradex-Cle':c.cle,'ngrok-skip-browser-warning':'1'} })
+      .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
+      .then(function(d){
+        window.PRADEX.live = { depots:d.periodes.journee.depots, retraits:d.periodes.journee.retraits,
+                               journee:d.periodes.journee, bilan14:d.periodes.bilan14,
+                               cloture:d.periodes.cloture, date:d.date };
+        remplir();
+        try { renderHome(); renderTBar(); if(typeof renderSaisie==='function') renderSaisie(); } catch(e){}
+        bandeau('✅ Totaux du ' + d.date + ' — dépôts '
+          + d.periodes.journee.depots.toLocaleString('fr-FR') + ' · retraits '
+          + d.periodes.journee.retraits.toLocaleString('fr-FR'), '#16a34a');
+      })
+      .catch(function(){
+        bandeau('⚠️ Bots injoignables — appuie ici pour vérifier la liaison', '#d97706');
+      });
+  };
+
+  function bouton(){
+    if (document.getElementById('px-btn')) return;
+    var b = document.createElement('button');
+    b.id='px-btn'; b.textContent='🔗';
+    b.title='Liaison avec les bots';
+    b.style.cssText='position:fixed;right:12px;bottom:78px;z-index:99999;width:44px;height:44px;'
+      +'border:0;border-radius:50%;background:#2563eb;color:#fff;font-size:19px;'
+      +'box-shadow:0 4px 14px rgba(0,0,0,.35);opacity:.9';
+    b.onclick = function(){ if (lire()) pxSync(false); else pxOuvrir(); };
+    b.oncontextmenu = function(e){ e.preventDefault(); pxOuvrir(); return false; };
+    document.body.appendChild(b);
+  }
+
+  function demarrer(){
+    bouton();
+    if (lire()) pxSync(true); else setTimeout(pxOuvrir, 1200);
+    document.addEventListener('visibilitychange', function(){ if(!document.hidden) pxSync(true); });
+    new MutationObserver(function(){ remplir(); }).observe(document.body,{childList:true,subtree:true});
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', demarrer);
+  else demarrer();
 })();
 </script>
 </body>
