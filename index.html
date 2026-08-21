@@ -204,6 +204,12 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
   border-radius:10px;padding:11px 12px;margin-bottom:12px}
 .att-titre{font-size:12px;font-weight:700;color:var(--warn);margin-bottom:4px}
 .att-txt{font-size:11px;color:var(--t2);line-height:1.5}
+/* Tout est rempli, il ne reste qu'à valider. Vert et trait PLEIN — le
+   pointillé orange voulait dire « il manque quelque chose », et il ne
+   manque plus rien. Mais toujours un encadré, jamais une coche : rien
+   n'est écrit dans son état financier tant qu'il n'a pas cliqué. */
+.att-bloc.att-pret{border:1.5px solid var(--green2);background:rgba(22,163,74,.09)}
+.att-bloc.att-pret .att-titre{color:var(--green2)}
 /* Soldes modifiables sur la carte « fonds de départ ». Volontairement
    discrets : ils doivent se lire comme des chiffres, pas comme un
    formulaire, tant qu'on n'y touche pas. */
@@ -1019,6 +1025,170 @@ function benefCryptoJour() {
   }
   return b;
 }
+function rechargesJour() {
+  // Montant CRÉDITÉ sur le prépaiement, jamais le montant envoyé depuis Wave.
+  // Les deux diffèrent des frais Wave et de l'écart de change : le 19/08,
+  // 630 000 envoyés pour 624 057 crédités. C'est `recoit` qu'il faut, et
+  // c'est bien la valeur crypto reçue que saveRech() y range.
+  var today = S.journee.date, r = 0;
+  try {
+    for (var i=0; i<S.rechargements.length; i++) {
+      if (S.rechargements[i].date === today) r += (S.rechargements[i].recoit || 0);
+    }
+  } catch(e){}
+  return r;
+}
+
+function prepaiementCalcule() {
+  /* ══ LE PRÉPAIEMENT, CALCULÉ AU LIEU D'ÊTRE SAISI ══
+     Convention mesurée sur pièce le 19/08/2026, pas devinée :
+
+        prépaiement = départ + recharges − dépôts + retraits
+                      + 5 % dépôts + 2 % retraits
+
+     Un dépôt consomme 95 % de son montant, un retrait en rend 102 % : le
+     site recrédite la commission brute au moment de la confirmation. Vérifié
+     contre un relevé réel — 1 367 129 F attendus, 1 367 141,5 prédits, soit
+     12,50 F d'écart sur 1,37 million.
+
+     Le Mac fournit la VARIATION (tout ce que l'activité des bots a bougé) et
+     les taux avec. Nous n'ajoutons que les deux termes qu'il est seul à
+     connaître : le départ figé le matin et les recharges de la journée.
+     Un seul calcul, un seul jeu de taux — c'est ce qui empêche les deux
+     côtés de diverger.
+
+     Renvoie null dès qu'un terme manque. Un prépaiement faux vaut moins que
+     pas de prépaiement : c'est le chiffre le plus lourd de sa caisse. */
+  try {
+    var p = window.PRADEX && window.PRADEX.prepaiement;
+    if (!p || !p.calculable) return null;
+    var v = Number(p.variation);
+    if (!isFinite(v)) return null;
+    var fd = S.journee && S.journee.fondsDepart;
+    if (!fd || fd.principal === undefined || fd.principal === null) return null;
+    var depart = Number(fd.principal);
+    if (!isFinite(depart)) return null;
+    /* Les chiffres du Mac doivent porter sur LA MÊME journée que l'état
+       local. Après minuit, ou si la synchro rend une vieille date, additionner
+       les deux produirait un prépaiement hybride, faux et crédible.
+
+       ⚠️ Deux formats de date cohabitent : le Mac parle ISO (2026-08-19),
+       PAIREDAS parle français (19/08/2026). Les comparer tels quels rendait
+       la garde TOUJOURS vraie, donc le prépaiement toujours nul. */
+    if (!memeJour()) return null;
+    return Math.round(depart + rechargesJour() + v);
+  } catch(e){ return null; }
+}
+
+function isoVersFR(iso) {
+  // 2026-08-19 → 19/08/2026. Le Mac parle ISO, PAIREDAS parle français.
+  try {
+    var p = String(iso||'').split('-');
+    if (p.length !== 3) return '';
+    return p[2] + '/' + p[1] + '/' + p[0];
+  } catch(e){ return ''; }
+}
+
+function memeJour() {
+  /* Les chiffres du Mac portent-ils sur la journée ouverte dans PAIREDAS ?
+     Tant que la synchro n'a rien rendu, on répond NON : mieux vaut un champ
+     vide qu'un chiffre bâti sur une date qu'on n'a pas vérifiée. */
+  try {
+    var l = window.PRADEX && window.PRADEX.live;
+    if (!l || !l.date || !S.journee || !S.journee.date) return false;
+    return isoVersFR(l.date) === S.journee.date;
+  } catch(e){ return false; }
+}
+
+function prepaiementMotif() {
+  /* Pourquoi le prépaiement n'a PAS pu être calculé. Un champ vide sans
+     explication le laisserait chercher ; il doit savoir s'il y a quelque
+     chose à faire (figer minuit) ou rien (attendre la synchro). */
+  try {
+    var p = window.PRADEX && window.PRADEX.prepaiement;
+    if (!p) return 'les totaux du Mac ne sont pas encore arrivés.';
+    if (!p.calculable) return 'le Mac ne sait pas le calculer (' + (p.raison||'?') + ').';
+    var fd = S.journee && S.journee.fondsDepart;
+    if (!fd || fd.principal === undefined || fd.principal === null)
+      return 'ton point de départ de minuit n\'est pas encore figé.';
+    var l = window.PRADEX && window.PRADEX.live;
+    if (!l || !l.date) return 'les totaux du Mac ne sont pas encore arrivés.';
+    if (!memeJour())
+      return 'les chiffres du Mac portent sur le ' + isoVersFR(l.date)
+           + ', pas sur ta journée du ' + S.journee.date + '.';
+  } catch(e){}
+  return 'nous ne pouvons pas le lire.';
+}
+
+function autoValidationActive() {
+  // Réglage explicite, actif par défaut, coupable en un geste depuis les
+  // paramètres. Il doit pouvoir reprendre la main sans nous.
+  try { return S.autoJalons !== false; } catch(e){ return false; }
+}
+
+function autoValiderJalon() {
+  /* ══ VALIDATION AUTOMATIQUE DES JALONS ══
+     N'agit QUE lorsque chaque chiffre du formulaire vient d'une source
+     vérifiée. Renvoie l'identifiant du jalon validé, ou null.
+
+     Le principe : on n'automatise pas un geste, on automatise un geste DONT
+     ON A VÉRIFIÉ LES ENTRÉES. Si l'une manque, on ne valide pas et la
+     bannière reprend son rôle — il fera le geste lui-même, comme avant.
+     Un jalon validé sur des chiffres incomplets entrerait en silence dans
+     son historique, et il n'aurait aucune raison d'aller le vérifier. */
+  try {
+    if (!autoValidationActive()) return null;
+    if (!memeJour()) return null;                  // dates alignées
+    var pp = prepaiementCalcule();
+    if (pp == null) return null;                   // prépaiement calculable
+
+    /* Les DEUX soldes Wave doivent être lus ET frais. Un solde vieux de six
+       heures produirait un faux « manquant » qu'il verrait comme une alerte
+       de caisse, alors que ce ne serait qu'un chiffre périmé. */
+    var sd = window.PRADEX && window.PRADEX.soldes;
+    if (!sd || sd.depots == null || sd.retraits == null) return null;
+    var ages = [sd.depots_lu_le, sd.retraits_lu_le];
+    for (var a=0; a<ages.length; a++) {
+      if (!ages[a]) return null;
+      var t = new Date(ages[a]).getTime();
+      if (!isFinite(t) || (Date.now() - t) > 45*60*1000) return null;   // 45 min
+    }
+    /* Le rapprochement bot↔Wave doit être muet. S'il signale un écart, c'est
+       qu'un paiement ne se retrouve pas des deux côtés : c'est exactement le
+       moment où il faut un œil humain, pas une validation de plus. */
+    if (sd.rapprochement && sd.rapprochement.fiable
+        && (sd.rapprochement.manquants || []).length) return null;
+
+    var id = null;
+    if (jalonEnAttente('14h')) id = '14h';
+    /* La clôture ne part QUE sur une journée écoulée. À 23 h, la journée
+       n'est pas finie : clôturer là amputerait la dernière heure de
+       transactions, définitivement, dans un jour archivé. */
+    else if (jalonEnAttente('00h') && S.journee.date !== todayStr()) id = '00h';
+    if (!id) return null;
+
+    // Les champs doivent être remplis — remplir() est passé juste avant.
+    var pEl = document.getElementById('ssol-p-'+id);
+    if (!pEl || isNaN(parseFloat(pEl.value))) return null;
+    for (var i=0; i<S.wallets.length; i++) {
+      var w = document.getElementById('ssol-w-'+id+'-'+i);
+      if (!w || isNaN(parseFloat(w.value))) return null;
+    }
+    var dEl = document.getElementById('sdep-'+id), rEl = document.getElementById('sret-'+id);
+    if (!dEl || !rEl || dEl.value === '' || rEl.value === '') return null;
+
+    valider(id);
+    /* Trace explicite : il doit pouvoir savoir, plus tard, qu'un jalon a été
+       posé sans lui — et sur quels chiffres. Un jalon automatique qui ne se
+       distingue pas d'un jalon manuel est un jalon qu'on ne peut pas auditer. */
+    try {
+      var cible = (id==='14h') ? S.journee.bilan14 : S.journee.cloture;
+      if (cible) { cible.auto = true; cible.autoTs = Date.now(); saveState(); }
+    } catch(e){}
+    return id;
+  } catch(e){ return null; }
+}
+
 function soldeAttenduJour() {
   return getFondsDepart() + gainJour().gainNet + benefCryptoJour();
 }
@@ -1241,14 +1411,30 @@ function renderHome() {
     var today=S.journee.date;
     var rechJour=[];
     for (var i=0; i<S.rechargements.length; i++) { if(S.rechargements[i].date===today) rechJour.push(S.rechargements[i]); }
-    var totRF=0, totRR=0;
-    for (var i=0; i<rechJour.length; i++) { totRF+=rechJour[i].frais; totRR+=rechJour[i].recoit; }
+    /* On additionne aussi ce qui est ENVOYÉ. Sans lui, le coût d'une recharge
+       se lisait en un seul bloc et il était impossible de voir d'où il vient :
+       le 19/08, sur 630 000 envoyés, 3 150 étaient des frais Wave (0,5 %) et
+       5 943 de l'écart de change (0,94 %). Les frais sont fixes, le change ne
+       l'est pas — c'est le second qu'il peut négocier. */
+    var totRF=0, totRR=0, totRE=0;
+    for (var i=0; i<rechJour.length; i++) {
+      totRF+=rechJour[i].frais; totRR+=rechJour[i].recoit; totRE+=(rechJour[i].envoye||0);
+    }
+    var chg = totRE - totRR;   // écart de change, hors frais Wave
     if (rechJour.length>0) {
+      /* Le taux affiché est celui RÉELLEMENT appliqué par le calcul, pas une
+         constante en dur. L'étiquette annonçait 1,5 % alors que le calcul
+         appliquait 0,5 % (1,5 % de frais moins 1 % de cashback international) :
+         le chiffre était juste, l'étiquette mentait. */
+      var txF = totRE ? (totRF/totRE*100) : 0;
       html+='<div class="benef-section">'
           +'<div class="benef-section-title">Résultat crypto ('+rechJour.length+' rechargement(s))</div>'
           +'<div class="crypto-section">'
+          +'<div class="dr"><span class="dl">📤 Envoyé depuis Wave</span><span class="dv">'+fmtF(totRE)+'</span></div>'
           +'<div class="dr"><span class="dl">💰 Pré-paiement rechargé</span><span class="dv c-blue">'+fmtF(totRR)+'</span></div>'
-          +'<div class="dr"><span class="dl">⚠️ Frais Wave (1.5%)</span><span class="dv c-warn">-'+fmtF(totRF)+'</span></div>'
+          +'<div class="dr"><span class="dl">⚠️ Frais Wave ('+txF.toFixed(1).replace('.',',')+'%)</span><span class="dv c-warn">-'+fmtF(totRF)+'</span></div>'
+          +(chg!==0?'<div class="dr"><span class="dl">💱 Écart de change ('+(totRE?(chg/totRE*100).toFixed(2).replace('.',','):'0')+'%)</span><span class="dv '+(chg>0?'c-warn':'c-green')+'">'+(chg>0?'-':'+')+fmtF(Math.abs(chg))+'</span></div>':'')
+          +'<div class="dr"><span class="dl">🏦 Débité de Wave</span><span class="dv">'+fmtF(totRE+totRF)+'</span></div>'
           +'<div class="dr"><span class="dl" style="font-weight:700">'+(bCrypto>=0?'✅ Bénéfice crypto':'❌ Perte crypto')+'</span>'
           +'<span class="dv" style="color:'+(bCrypto>=0?'var(--green2)':'var(--red2)')+'">'+(bCrypto>=0?'+':'')+fmtF(bCrypto)+'</span></div>'
           +'</div>'
@@ -1463,14 +1649,33 @@ function buildSaisieForm(id, lblDep, lblRet, btnTxt, isCloture) {
     var att='';
     if (jalonEnAttente(id)) {
       var quoi = (id==='00h')
-        ? "La cl\u00f4ture n'a pas \u00e9t\u00e9 faite."
-        : "Le point de 14 h n'a pas \u00e9t\u00e9 valid\u00e9.";
-      att = '<div class="att-bloc">'
-          + '<div class="att-titre">\u23f3 ' + quoi + " Rien n'a \u00e9t\u00e9 valid\u00e9 \u00e0 ta place.</div>"
-          + '<div class="att-txt">Les volumes et tes soldes Wave sont d\u00e9j\u00e0 remplis'
-          + ' ci-dessous, avec les chiffres de la bonne p\u00e9riode. '
-          + '<b>Il ne manque que ton pr\u00e9-paiement</b> \u2014 nous ne pouvons pas le lire.'
-          + ' Tape-le, v\u00e9rifie le reste, et valide.</div></div>';
+        ? "La clôture n'a pas été faite."
+        : "Le point de 14 h n'a pas été validé.";
+      /* Depuis le 19/08, le pré-paiement est CALCULÉ. Deux messages
+         distincts, et le second ne doit surtout pas ressembler au premier :
+         quand tout est rempli, il reste UN geste à faire, et le dire
+         mollement reviendrait à laisser croire que c'est fait. Rien n'est
+         jamais écrit dans son état financier sans son clic. */
+      var pp = (typeof prepaiementCalcule === 'function') ? prepaiementCalcule() : null;
+      if (pp != null) {
+        att = '<div class="att-bloc att-pret">'
+            + '<div class="att-titre">✅ ' + quoi
+            + " Tout est prêt — il ne manque que ta validation.</div>"
+            + '<div class="att-txt">Les volumes, tes soldes Wave et ton '
+            + 'pré-paiement (<b>' + fmtF(pp) + ' F</b>, calculé) sont '
+            + 'remplis ci-dessous. <b>Rien n\'est enregistré tant que tu '
+            + "n'as pas cliqué.</b> Vérifie le pré-paiement contre "
+            + "ton compte 1xbet — s'il diffère, corrige-le, ta saisie "
+            + 'gagne toujours.</div></div>';
+      } else {
+        att = '<div class="att-bloc">'
+            + '<div class="att-titre">⏳ ' + quoi + " Rien n'a été validé à ta place.</div>"
+            + '<div class="att-txt">Les volumes et tes soldes Wave sont déjà remplis'
+            + ' ci-dessous, avec les chiffres de la bonne période. '
+            + '<b>Il ne manque que ton pré-paiement</b> — '
+            + prepaiementMotif()
+            + ' Tape-le, vérifie le reste, et valide.</div></div>';
+      }
     }
   var html=att+'<div class="card" style="background:var(--bg2);border:1px solid var(--b1)">'
           +'<div class="fgrp"><label class="flbl">'+lblDep+'</label>'
@@ -2741,6 +2946,19 @@ function renderCfg() {
     +'<button class="btn-primary" style="margin-top:10px" onclick="saveTaux()">💾 Enregistrer les taux</button>'
     +'</div>'
 
+    +'<div class="section-lbl">Validation automatique des jalons</div>'
+    +'<div class="card">'
+    +'<div style="font-size:11px;color:var(--t2);margin-bottom:12px">'
+    +'Quand <b>tous</b> les chiffres sont vérifiés — volumes des bots, tes deux '
+    +'soldes Wave lus depuis moins de 45 minutes, et ton pré-paiement calculé — '
+    +'le point de 14 h se valide seul. La clôture ne part que sur une journée '
+    +'déjà écoulée, jamais sur la journée en cours. '
+    +'S\'il manque quoi que ce soit, rien n\'est validé et tu gardes la main.'
+    +'</div>'
+    +'<button class="btn-primary" style="background:'+(autoValidationActive()?'var(--green2)':'var(--s2)')+'" onclick="toggleAutoJalons()">'
+    +(autoValidationActive()?'✅ Activée — cliquer pour désactiver':'⏸️ Désactivée — cliquer pour activer')+'</button>'
+    +'</div>'
+
     +'<div class="section-lbl">Alerte capital</div>'
     +'<div class="card">'
     +'<div style="font-size:11px;color:var(--t2);margin-bottom:12px">Si ton fonds de roulement (Pré-paiement + Wave) descend sous ce seuil, une alerte s\'affiche sur l\'accueil. Mets 0 pour désactiver.</div>'
@@ -2781,6 +2999,12 @@ function saveTaux() {
   }
   S.taux=nouveaux; saveState(); renderCfg(); renderHome(); renderSaisie();
   toast('✅ Taux enregistrés');
+}
+function toggleAutoJalons() {
+  S.autoJalons = !autoValidationActive();
+  saveState(); renderCfg();
+  toast(S.autoJalons ? '✅ Jalons automatiques activés'
+                     : '⏸️ Jalons automatiques désactivés — à toi de valider');
 }
 function saveSeuil() {
   var el=document.getElementById('cfgSeuil'); if(!el) return;
@@ -3388,13 +3612,16 @@ setInterval(function(){
 
   function ciblesSoldes(){
     /* La « caisse réelle » de PAIREDAS = prépaiement + portefeuilles.
-       Le prépaiement est son crédit chez le bookmaker : nous ne le
-       connaissons pas, il reste à sa main. On ne remplit que les
-       portefeuilles Wave, et uniquement si les DEUX soldes sont connus. */
+       Depuis le 19/08 les TROIS sont calculables : les deux soldes Wave sont
+       lus par les bots, et le prépaiement se déduit de la convention du site
+       mesurée sur un relevé réel. */
     var out = {};
-    var sd = window.PRADEX.soldes;
-    if (!sd) return out;
     if (typeof S === 'undefined' || !S.wallets) return out;
+    /* Le prépaiement ne dépend PAS des soldes Wave : il vient des volumes de
+       transactions. Il se remplit donc même quand un compte Wave n'est pas
+       lu — même raison qu'en dessous, on ne fait pas dépendre un champ connu
+       d'un champ inconnu. */
+    var sd = window.PRADEX.soldes || {};
     /* CHAQUE COMPTE EST INDÉPENDANT.
        Avant, il fallait les DEUX soldes pour remplir quoi que ce soit : tant
        que le compte PRADEX n'était pas lu, le solde dépôts — pourtant connu
@@ -3402,7 +3629,16 @@ setInterval(function(){
        sont deux champs distincts, et l'écart ne se calcule de toute façon
        qu'une fois TOUS les champs remplis, prépaiement compris, qu'il saisit
        lui-même. On remplit donc ce qu'on sait, on laisse vide ce qu'on ignore. */
+    /* LE PRÉPAIEMENT AUSSI, DEPUIS LE 19/08.
+       Il était le seul champ que nous ne savions pas remplir. La convention
+       du site a été mesurée sur un relevé réel : il devient calculable. On
+       le pose exactement comme les autres — proposé, jamais imposé : la règle
+       anti-écrasement de remplir() s'applique à ce champ comme aux autres, et
+       toute saisie manuelle reste intouchable. */
+    var pp = (typeof prepaiementCalcule === 'function') ? prepaiementCalcule() : null;
+
     ['14h','00h'].forEach(function(id){
+      if (pp != null) out['ssol-p-'+id] = pp;
       S.wallets.forEach(function(w, i){
         var c = compteDuWallet(w.nom);
         if (c === 'depots'   && sd.depots   != null) out['ssol-w-'+id+'-'+i] = sd.depots;
@@ -3449,15 +3685,40 @@ setInterval(function(){
     var c = window.PRADEX.cfg || lire();
     if (!c) { if(!silencieux) pxOuvrir(); return Promise.resolve(); }
     window.PRADEX.cfg = c;
-    return fetch(c.url + '/api/journee', { headers:{'X-Pradex-Cle':c.cle,'ngrok-skip-browser-warning':'1'} })
+    /* Si la journée ouverte dans PAIREDAS n'est pas celle de l'horloge — une
+       journée d'hier jamais clôturée — on demande explicitement SES totaux.
+       Sans ça, le Mac répondrait avec les chiffres d'aujourd'hui et il serait
+       impossible de clôturer un jour passé sur ses vrais volumes. Une date
+       n'est pas un secret : elle peut voyager en clair dans l'URL. */
+    var q = '';
+    try {
+      if (S.journee && S.journee.date && S.journee.date !== todayStr()) {
+        var p = S.journee.date.split('/');
+        if (p.length === 3) q = '?jour=' + p[2] + '-' + p[1] + '-' + p[0];
+      }
+    } catch(e){}
+    return fetch(c.url + '/api/journee' + q, { headers:{'X-Pradex-Cle':c.cle,'ngrok-skip-browser-warning':'1'} })
       .then(function(r){ if(!r.ok) throw new Error(r.status); return r.json(); })
       .then(function(d){
         window.PRADEX.live = { depots:d.periodes.journee.depots, retraits:d.periodes.journee.retraits,
                                journee:d.periodes.journee, bilan14:d.periodes.bilan14,
                                cloture:d.periodes.cloture, date:d.date };
         window.PRADEX.soldes = d.soldes || null;
+        window.PRADEX.prepaiement = d.prepaiement || null;
         remplir();
+        /* La validation vient APRÈS le remplissage : elle lit les champs, elle
+           ne recalcule rien de son côté. Un seul jeu de chiffres, celui qu'il
+           voit à l'écran — c'est ce qui garantit que ce qui est validé est
+           exactement ce qui était affiché. */
+        var jauto = (typeof autoValiderJalon === 'function') ? autoValiderJalon() : null;
         try { renderHome(); renderTBar(); if(typeof renderSaisie==='function') renderSaisie(); } catch(e){}
+        if (jauto) {
+          bandeau('✅ ' + (jauto==='14h' ? 'Point de 14 h validé' : 'Journée clôturée')
+                  + ' automatiquement — tous les chiffres étaient vérifiés '
+                  + '(volumes, deux soldes Wave, pré-paiement calculé). '
+                  + 'Ouvre le jalon si tu veux le relire.', '#16a34a');
+          return;
+        }
         var sd = d.soldes || {};
         var txt = '✅ Totaux du ' + d.date + ' — dépôts '
           + d.periodes.journee.depots.toLocaleString('fr-FR') + ' · retraits '
