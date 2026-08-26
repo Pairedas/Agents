@@ -968,6 +968,47 @@ function totalRoulement() {
   for (var i=0; i<S.wallets.length; i++) t += S.wallets[i].solde;
   return t;
 }
+
+function caisseFraiche() {
+  /* ══ UN CHIFFRE, ET LA RÉPONSE À « EST-IL À JOUR ? » ══════════════════════
+     `totalRoulement()` additionne S.principal.solde et S.wallets[].solde.
+     Ces trois valeurs ne sont écrites QUE par une saisie manuelle — figer les
+     fonds, corriger une pastille, modifier un réglage. Aucune synchro ne les
+     rafraîchit. Elles peuvent donc dater de plusieurs jours sans que rien ne
+     le signale.
+
+     C'est exactement ce qui s'est vu le 26/08 : la carte du Bureau affichait
+     « Wave depot 0 » alors que le compte contenait 62 203, et « Pré-paiement
+     173 753 » alors que le modèle en annonçait plus d'un million. Des chiffres
+     qui ne correspondaient ni à une donnée fraîche ni à une saisie récente.
+
+     Cette fonction dit les deux choses à la fois : la valeur, et si elle est
+     fraîche. Ce qui la lit peut alors décider — afficher, ou se taire.
+     Elle ne remplace pas totalRoulement(), qui reste la photo locale utilisée
+     pour archiver les journées passées. */
+  var out = {total: totalRoulement(), frais: false, motif: '', detail: null};
+  try {
+    var sd = (window.PRADEX && window.PRADEX.soldes) || null;
+    var cw = window.PRADEX && window.PRADEX.compteDuWallet;
+    if (!sd || typeof cw !== 'function') { out.motif = 'pas encore synchronisé'; return out; }
+    if (typeof memeJour === 'function' && !memeJour()) {
+      out.motif = 'les chiffres du Mac portent sur une autre journée'; return out; }
+
+    var pp = (typeof prepaiementCalcule === 'function') ? prepaiementCalcule() : null;
+    if (pp === null) { out.motif = 'prépaiement non calculable — fonds de départ non figés'; return out; }
+
+    var t = Number(pp), det = [{nom: S.principal.nom, solde: Number(pp)}];
+    for (var i = 0; i < S.wallets.length; i++) {
+      var c = cw(S.wallets[i].nom);
+      var v = (c === 'depots') ? sd.depots : (c === 'retraits') ? sd.retraits : null;
+      if (v === null || v === undefined) {
+        out.motif = 'solde « ' + S.wallets[i].nom + ' » non lu'; return out; }
+      t += Number(v); det.push({nom: S.wallets[i].nom, solde: Number(v)});
+    }
+    out.total = t; out.detail = det; out.frais = true;
+  } catch(e) { out.motif = 'calcul impossible'; }
+  return out;
+}
 function getFondsDepart() {
   if (!S.journee.fondsDepart) return 0;
   var base = S.journee.fondsDepart.total;
@@ -1337,8 +1378,15 @@ function renderHome() {
   var html='';
 
   // ── ALERTE CAPITAL BAS ──
-  var roul=totalRoulement();
-  if (S.seuilCapital>0 && roul<S.seuilCapital) {
+  /* Cette alerte se déclenchait sur `totalRoulement()`, c'est-à-dire sur les
+     soldes stockés localement — ceux qui affichaient « Wave depot 0 » le
+     26/08 pendant que le compte contenait 62 203. Une alerte de trésorerie
+     bâtie sur des chiffres périmés se trompe dans les deux sens : elle crie
+     au capital bas quand tout va bien, et elle se tait quand ça ne va pas.
+     Elle n'est donc plus émise que sur des chiffres frais. */
+  var _cf=caisseFraiche();
+  var roul=_cf.total;
+  if (S.seuilCapital>0 && _cf.frais && roul<S.seuilCapital) {
     html+='<div class="card" style="border:1px solid rgba(255,77,109,0.35);background:linear-gradient(135deg,rgba(255,77,109,0.08),transparent);display:flex;align-items:center;gap:10px;padding:12px 14px">'
         +'<div style="font-size:20px">🚨</div>'
         +'<div style="flex:1"><div style="font-size:12px;font-weight:700;color:var(--red2)">Capital bas : '+fmtF(roul)+'</div>'
@@ -1483,8 +1531,28 @@ function renderHome() {
       ch+='<div class="fchip fchip-p">'+esc(S.principal.nom)+' '+fmt(fd2.principal)+'</div>';
       for (var i=0; i<fd2.wallets.length; i++) ch+='<div class="fchip fchip-w">'+esc(fd2.wallets[i].nom)+' '+fmt(fd2.wallets[i].solde)+'</div>';
     } else {
-      ch+='<div class="fchip fchip-p">'+esc(S.principal.nom)+' '+fmt(S.principal.solde)+'</div>';
-      for (var i=0; i<S.wallets.length; i++) ch+='<div class="fchip fchip-w">'+esc(S.wallets[i].nom)+' '+fmt(S.wallets[i].solde)+'</div>';
+      /* ══ CE QUI A FAIT PERDRE CONFIANCE LE 26/08 ═══════════════════════
+         Tant que les fonds ne sont pas figés, cette branche affichait
+         S.principal.solde et S.wallets[].solde — des valeurs qu'aucune
+         synchro ne rafraîchit, écrites la dernière fois qu'il a saisi
+         quelque chose. D'où « Wave depot 0 » sous une carte à 0 FCFA, à
+         côté d'un compte qui contenait 62 203.
+
+         Un chiffre qui ne correspond ni à une donnée fraîche ni à une
+         saisie récente est pire qu'une case vide : il a l'air d'une
+         information. On affiche donc le solde LU par les bots quand on
+         l'a, et « à saisir » quand on ne l'a pas. */
+      var _sd = (window.PRADEX && window.PRADEX.soldes) || null;
+      var _cw = window.PRADEX && window.PRADEX.compteDuWallet;
+      var _ok = _sd && typeof _cw==='function' && (typeof memeJour!=='function' || memeJour());
+      ch+='<div class="fchip fchip-p" style="opacity:.55">'+esc(S.principal.nom)+' — à saisir</div>';
+      for (var i=0; i<S.wallets.length; i++) {
+        var _c = _ok ? _cw(S.wallets[i].nom) : null;
+        var _v = (_c==='depots') ? _sd.depots : (_c==='retraits') ? _sd.retraits : null;
+        ch += (_v!==null && _v!==undefined)
+          ? '<div class="fchip fchip-w">'+esc(S.wallets[i].nom)+' '+fmt(_v)+'</div>'
+          : '<div class="fchip fchip-w" style="opacity:.55">'+esc(S.wallets[i].nom)+' — à saisir</div>';
+      }
     }
     chips.innerHTML=ch;
   }
@@ -1556,13 +1624,67 @@ function renderSaisie() {
         +'</div></div>';
   } else {
     html+='<div class="step-body">'
-        +'<div class="sol-block"><div class="sol-title">Saisissez les soldes réels maintenant</div>'
-        +'<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-p">Pré-paiement</span>'+S.principal.nom+'</div>'
-        +'<input class="sol-inp" type="number" id="minuit-p" placeholder="Solde actuel..." inputmode="numeric"></div>';
+        +'<div class="sol-block"><div class="sol-title">Saisissez les soldes réels maintenant</div>';
+
+    /* ══ DIRE LA VÉRITÉ SUR CE QU'ON FIGE ══════════════════════════════════
+       Le fonds de départ sert de référence à TOUS les écarts de la journée :
+       écart = caisse réelle − (fonds + gains depuis 00 h + crypto).
+
+       Les gains, eux, sont comptés depuis MINUIT. Si les fonds sont figés en
+       cours de journée sur les soldes de l'instant, les deux termes ne
+       couvrent plus la même période : l'activité déjà écoulée est comptée
+       dans les gains sans l'être dans les fonds, et l'écart affiché est faux
+       du montant de cette activité.
+
+       On ne peut pas reconstruire les soldes Wave de minuit — personne ne les
+       a relevés. On ne va donc pas bricoler un chiffre : on l'écrit en clair
+       pour qu'il sache lire l'écart d'aujourd'hui pour ce qu'il vaut, et que
+       demain, figé à l'heure, tout soit juste. */
+    try {
+      var _lv = window.PRADEX && window.PRADEX.live;
+      if (memeJour() && _lv && _lv.journee &&
+          (Number(_lv.journee.depots) > 0 || Number(_lv.journee.retraits) > 0)) {
+        html+='<div style="background:var(--wrd);border:1px solid rgba(255,176,32,0.28);'
+            +'border-radius:10px;padding:9px 11px;margin-bottom:10px;font-size:11px;'
+            +'line-height:1.5;color:var(--warn)">'
+            +'<b>⚠️ La journée a déjà tourné avant que tu figes.</b><br>'
+            +'<span style="color:var(--t2)">Déjà enregistré aujourd\'hui : '
+            +fmtF(_lv.journee.depots)+' de dépôts et '+fmtF(_lv.journee.retraits)
+            +' de retraits. Tes gains sont comptés depuis minuit, mais ces fonds '
+            +'partent de maintenant : l\'écart d\'aujourd\'hui sera décalé. '
+            +'Fige quand même — c\'est indispensable pour la suite — et lis '
+            +'l\'écart du jour avec cette réserve. Demain, en figeant au réveil, '
+            +'il sera juste.</span></div>';
+      }
+    } catch(e){}
+
+    html+='<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-p">Pré-paiement</span>'+S.principal.nom+'</div>'
+        +'<input class="sol-inp" type="number" id="minuit-p" placeholder="À lire sur le site..." inputmode="numeric"></div>'
+        /* Seul champ des trois que nous ne pouvons pas proposer, et il faut le
+           dire : le prépaiement calculé vaut « ce départ + recharges +
+           variation ». Le déduire de lui-même n'a pas de sens. Un champ vide
+           sans explication le laisse chercher une panne qui n'existe pas. */
+        +'<div style="font-size:10px;color:var(--t3);margin:-4px 0 10px 2px;line-height:1.45">'
+        +'🔎 Le seul chiffre que le Mac ne peut pas deviner : relève-le sur le '
+        +'site. Tout le reste de la journée s\'en déduit.</div>';
+
     for (var i=0; i<S.wallets.length; i++) {
       html+='<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-w">Wave</span>'+S.wallets[i].nom+'</div>'
           +'<input class="sol-inp" type="number" id="minuit-w-'+i+'" placeholder="Solde actuel..." inputmode="numeric"></div>';
     }
+    /* Les deux soldes Wave, eux, sont lus par les bots : on dit d'où ils
+       viennent et quand, pour qu'il puisse corriger en connaissance de cause
+       plutôt que de faire confiance à un chiffre sans origine. */
+    try {
+      var _sd = (window.PRADEX && window.PRADEX.soldes) || {};
+      if (memeJour() && (_sd.depots != null || _sd.retraits != null)) {
+        html+='<div style="font-size:10px;color:var(--t3);margin:-4px 0 10px 2px;line-height:1.45">'
+            +'✅ Soldes Wave proposés d\'après la lecture des bots'
+            +esc(typeof window.PRADEX.heureLecture === 'function'
+                   ? window.PRADEX.heureLecture(_sd) : '')
+            +'. Corrige-les librement, ta saisie prime toujours.</div>';
+      }
+    } catch(e){}
     html+='</div><button class="btn-primary" onclick="validerMinuit()">🌙 Figer les fonds de départ</button>'
         +'</div>';
   }
@@ -1628,7 +1750,43 @@ function renderSaisie() {
     html+='</div>';
   }
 
+  /* ══ NE PAS EFFACER CE QU'IL VIENT DE TAPER ═══════════════════════════════
+     Le formulaire est reconstruit à chaque synchronisation — pxSync appelle
+     renderSaisie() après avoir rafraîchi les chiffres. `innerHTML = html`
+     détruit les champs et leur contenu.
+
+     Conséquence constatée à l'épreuve : il corrige son pré-paiement pour le
+     faire coller à son compte 1xbet, la synchronisation suivante reconstruit
+     le formulaire, et sa correction est remplacée par la valeur proposée.
+     L'application lui promet pourtant, en toutes lettres au-dessus du champ,
+     que « ta saisie gagne toujours ». Elle ne tenait pas cette promesse.
+
+     On met donc de côté, avant de reconstruire, tout ce qui n'est PAS une
+     valeur que nous avons posée nous-mêmes — c'est-à-dire tout ce qu'il a
+     tapé — et on le remet en place après. */
+  var _sien = {};
+  try {
+    var _av = el.querySelectorAll('input[id]');
+    for (var _i = 0; _i < _av.length; _i++) {
+      var _e = _av[_i];
+      if (_e.value !== '' && !(window.PRADEX && window.PRADEX.estPose
+                               && window.PRADEX.estPose(_e.id, _e.value))) {
+        _sien[_e.id] = _e.value;
+      }
+    }
+  } catch(e){}
+
   el.innerHTML=html;
+
+  try {
+    for (var _k in _sien) {
+      var _n = document.getElementById(_k);
+      if (!_n) continue;                       // le champ n'existe plus : on n'invente rien
+      _n.value = _sien[_k];
+      // Rejouer l'événement pour que l'aperçu reflète SA valeur, pas la nôtre.
+      try { _n.dispatchEvent(new Event('input', {bubbles:true})); } catch(e2){}
+    }
+  } catch(e){}
 
   // Afficher l'aperçu si la clôture est pré-remplie
   var pre00=document.getElementById('sdep-00h');
@@ -1638,7 +1796,28 @@ function renderSaisie() {
 function buildSaisieForm(id, lblDep, lblRet, btnTxt, isCloture) {
   // Clôture : pré-remplie avec les cumuls du bilan 14H — on ne fait qu'ajouter la suite
   var preDep='', preRet='';
-  if (id==='00h'&&S.journee.bilan14) { preDep=S.journee.bilan14.dep; preRet=S.journee.bilan14.ret; }
+  if (id==='00h'&&S.journee.bilan14) {
+    preDep=S.journee.bilan14.dep; preRet=S.journee.bilan14.ret;
+    /* ══ CE QUI FAUSSAIT LA CLÔTURE ════════════════════════════════════════
+       Ce pré-remplissage date d'avant la synchronisation : il posait le cumul
+       de 14 h comme point de départ, à charge pour lui d'ajouter l'après-midi
+       à la main. Depuis que le Mac fournit le total réel de la journée, c'est
+       ce total qu'il faut poser — 1 146 405 le 26/08, contre 495 628 pour la
+       seule matinée.
+
+       Or remplir() protège toute valeur déjà présente : il y voyait une
+       saisie manuelle et n'y touchait pas. La clôture restait donc calée sur
+       les chiffres du matin, et le bénéfice de la journée était calculé sur
+       moins de la moitié du volume réel.
+
+       On déclare donc ces deux valeurs comme posées par l'application. La
+       synchronisation peut les remplacer par le vrai total ; ce qu'il tape
+       lui-même reste protégé, exactement comme avant. */
+    try { if (window.PRADEX && window.PRADEX.poser) {
+      window.PRADEX.poser('sdep-'+id, preDep);
+      window.PRADEX.poser('sret-'+id, preRet);
+    } } catch(e){}
+  }
 
     /* ══ JALON EN ATTENTE — annonce explicite ══
        Les volumes et les soldes Wave sont pré-remplis par la synchronisation.
@@ -3561,6 +3740,24 @@ setInterval(function(){
   /* Remplit les champs de saisie. Ne touche JAMAIS un champ où tu as tapé :
      on n'écrit que si le champ est vide ou contient encore notre valeur. */
   var POSE = {};
+  /* ══ DÉCLARER UNE VALEUR COMME « POSÉE PAR NOUS », PAS PAR LUI ══════════
+     remplir() protège toute valeur déjà présente dans un champ : c'est ce
+     qui garantit qu'une saisie manuelle n'est jamais écrasée. Mais un champ
+     que l'APPLICATION a pré-rempli au moment du rendu porte lui aussi une
+     valeur — et la garde ne sait pas les distinguer.
+
+     C'est exactement ce qui bloquait la clôture : le formulaire y inscrit le
+     cumul de 14 h comme point de départ, remplir() y voyait une saisie de
+     l'opérateur, et le vrai total de la journée n'était jamais posé.
+     `poser()` permet au rendu de dire « cette valeur est de moi, tu peux la
+     remplacer ». Ce qu'il tape ensuite reste, lui, intouchable. */
+  window.PRADEX.poser = function(id, v){ try { POSE[id] = v; } catch(e){} };
+  /* Réciproque : « cette valeur affichée est-elle la nôtre, ou la sienne ? »
+     Sans cette question, un simple re-rendu du formulaire ne peut pas
+     distinguer une proposition d'une correction, et les efface toutes. */
+  window.PRADEX.estPose = function(id, v){
+    try { return String(POSE[id]) === String(v); } catch(e){ return false; }
+  };
 
   /* Associe un portefeuille de PAIREDAS à un compte Wave, d'après son nom.
      Sans correspondance certaine, on ne remplit rien : mieux vaut une saisie
@@ -3592,6 +3789,10 @@ setInterval(function(){
     } catch(e){ return ''; }
   }
 
+  /* Exposée hors du module : l'écran « Soldes à minuit » doit pouvoir dire
+     de quand datent les soldes qu'il propose. Un chiffre pré-rempli sans son
+     heure de lecture demande une confiance aveugle ; avec elle, il peut
+     décider lui-même s'il le garde ou le corrige. */
   function heureLecture(sd){
     /* Les deux comptes ne sont pas relus au même rythme : le compte dépôts
        l'est en continu, le compte PRADEX seulement au moment d'un paiement.
@@ -3609,6 +3810,9 @@ setInterval(function(){
       return ' (lu à ' + h + ')';
     } catch(e){ return ''; }
   }
+
+  window.PRADEX.heureLecture   = heureLecture;
+  window.PRADEX.compteDuWallet = compteDuWallet;
 
   function ciblesSoldes(){
     /* La « caisse réelle » de PAIREDAS = prépaiement + portefeuilles.
@@ -3645,6 +3849,41 @@ setInterval(function(){
         if (c === 'retraits' && sd.retraits != null) out['ssol-w-'+id+'-'+i] = sd.retraits;
       });
     });
+
+    /* ══ L'ÉCRAN DES SOLDES À MINUIT — LE MAILLON QUI BLOQUAIT TOUT ══
+       Constaté le 26/08 : les jalons étaient faux, et la cause n'était ni la
+       route, ni les volumes, ni le modèle du prépaiement — tous vérifiés
+       exacts sur trois jours. C'était qu'AUCUN des trois champs de « Soldes à
+       minuit » n'était jamais pré-rempli.
+
+       Ces champs s'appellent `minuit-p` et `minuit-w-<i>`. Les cibles
+       ci-dessus s'appellent `ssol-…`. Nous ne les avions donc jamais visés :
+       remplir() cherchait des identifiants qui n'existent pas sur cet écran
+       et n'y touchait pas une seule fois.
+
+       Or tant que les fonds ne sont pas figés, `fondsDepart` reste null, le
+       total affiché reste à 0, et TOUS les écarts se calculent contre zéro.
+       Un seul champ manquant en amont invalidait toute la chaîne en aval.
+
+       ⚠️ GARDE DE DATE. Les soldes lus par les bots sont ceux de MAINTENANT.
+       Si la journée ouverte dans PAIREDAS n'est pas celle du Mac — une
+       journée d'hier restée ouverte — proposer le solde d'aujourd'hui comme
+       fonds de départ d'hier serait faux, et faux de façon crédible. Le
+       prépaiement porte déjà cette garde ; les soldes ne l'avaient pas. */
+    if (memeJour()) {
+      S.wallets.forEach(function(w, i){
+        var c = compteDuWallet(w.nom);
+        if (c === 'depots'   && sd.depots   != null) out['minuit-w-'+i] = sd.depots;
+        if (c === 'retraits' && sd.retraits != null) out['minuit-w-'+i] = sd.retraits;
+      });
+      /* `minuit-p` n'est PAS pré-rempli, et ce n'est pas un oubli.
+         prepaiementCalcule() vaut « départ + recharges + variation », et le
+         départ est précisément ce que ce champ demande. Le calculer à partir
+         de lui-même n'a aucun sens : c'est la graine du modèle, le seul
+         chiffre de sa caisse que personne d'autre que le site ne connaît.
+         L'écran le dit maintenant en clair plutôt que de le laisser vide
+         sans explication. */
+    }
     return out;
   }
 
