@@ -592,14 +592,14 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
         <button class="type-btn" id="rechBtnInter" onclick="setRechType('international')">🌍 Inter (net 0.5%)</button>
       </div>
     </div>
-    <div class="fgrp"><label class="flbl">Montant envoyé via Wave (FCFA)</label><input class="finp" type="number" id="rechEnvoye" placeholder="ex: 500 000" inputmode="numeric" oninput="calcRech()"></div>
-    <div class="fgrp"><label class="flbl">Valeur crypto vendue (FCFA)</label><input class="finp" type="number" id="rechCrypto" placeholder="ex: 509 000" inputmode="numeric" oninput="calcRech()"></div>
+    <div class="fgrp"><label class="flbl">Sorti de Wave — total débité (FCFA)</label><input class="finp" type="number" id="rechEnvoye" placeholder="ex: 500 000" inputmode="numeric" oninput="calcRech()"></div>
+    <div class="fgrp"><label class="flbl">Crédité sur le pré-paiement — montant exact du site (FCFA)</label><input class="finp" type="number" id="rechCrypto" placeholder="ex: 496 000" inputmode="numeric" oninput="calcRech()"></div>
     <div id="rechPreview" style="display:none;background:var(--bg2);border:1px solid var(--b2);border-radius:var(--r12);padding:14px;margin-bottom:12px">
-      <div class="ir"><span class="il" id="rechFraisLbl">Frais Wave (1%)</span><span class="iv c-warn" id="rechFrais">—</span></div>
-      <div class="ir" id="rechCashbackRow" style="display:none"><span class="il" style="color:var(--green2)">💚 Cashback Wave (1%)</span><span class="iv c-green" id="rechCashback">—</span></div>
       <div class="ir"><span class="il">Pré-paiement reçoit</span><span class="iv c-blue" id="rechRecoit">—</span></div>
+      <div class="ir"><span class="il" id="rechFraisLbl">Frais Wave théoriques (info)</span><span class="iv" id="rechFrais" style="color:var(--t3)">—</span></div>
       <div style="height:1px;background:var(--b2);margin:8px 0"></div>
-      <div class="ir"><span class="il" style="font-weight:700">Bénéfice / Perte crypto</span><span class="iv" id="rechBenef" style="font-size:15px">—</span></div>
+      <div class="ir"><span class="il" style="font-weight:700">Coût / gain de la recharge</span><span class="iv" id="rechBenef" style="font-size:15px">—</span></div>
+      <div style="font-size:10px;color:var(--t3);margin-top:6px">Coût = sorti − crédité. Frais Wave et écart de change sont déjà dedans : rien n'est soustrait en plus.</div>
     </div>
     <div class="fgrp"><label class="flbl">Note (optionnel)</label><input class="finp" type="text" id="rechNote" placeholder="ex: USDT Binance..."></div>
     <button class="btn-primary" onclick="saveRech()">💾 Enregistrer</button>
@@ -892,7 +892,7 @@ function loadState() {
              par TA fonction soldeAttenduJour(). Amorcé une fois par
              « Point de minuit », tu ne le retapes plus jamais.
              validerMinuit() reste disponible pour te recaler quand tu veux. */
-          var _pxReport = null, _pxDetail = null;
+          var _pxReport = null, _pxDetail = null, _oldDate = S.journee.date;
           if (S.journee.fondsDepart) {
             _pxReport = soldeAttenduJour();
             _pxDetail = {principal: S.principal.solde,
@@ -902,7 +902,8 @@ function loadState() {
           S.journee = {date:todayStr(),
                        fondsDepart: (_pxReport!==null
                           ? {total:_pxReport, principal:(_pxDetail?_pxDetail.principal:0),
-                             wallets:(_pxDetail?_pxDetail.wallets:[]), auto:true}
+                             wallets:(_pxDetail?_pxDetail.wallets:[]), auto:true,
+                             source:'report', sourceDate:_oldDate, ts:Date.now()}
                           : null),
                        ajustements:[], bilan14:null, cloture:null};
           saveState();
@@ -1422,6 +1423,34 @@ function renderHome() {
         +'<div class="sa-val">'+fmtF(soldeAtt)+'</div></div>';
   }
 
+  // ── PRÉ-PAIEMENT ESTIMÉ (semi-auto) ──
+  /* Le prépaiement n'est lisible nulle part par les bots : l'app l'estime
+     (graine + recharges + activité du Mac) et il le vérifie sur le site
+     quand il veut. Un geste recale le modèle et trace l'écart constaté. */
+  if (S.journee.fondsDepart) {
+    var _fdp=S.journee.fondsDepart;
+    var _pp=(typeof prepaiementCalcule==='function')?prepaiementCalcule():null;
+    var _rj=(typeof rechargesJour==='function')?rechargesJour():0;
+    var _pxo=window.PRADEX||{};
+    var _var=(_pxo.prepaiement&&_pxo.prepaiement.calculable&&isFinite(Number(_pxo.prepaiement.variation)))?Number(_pxo.prepaiement.variation):null;
+    var _src=_fdp.source==='cloture'?'reportée de la clôture du '+(_fdp.sourceDate||'')
+            :_fdp.source==='report'?'reportée au changement de jour'
+            :_fdp.source==='recalage'?'recalée sur le site à '+fmtTime(_fdp.ts||Date.now())
+            :'saisie au point de minuit';
+    html+='<div class="card" style="border:1px solid rgba(77,171,247,0.25)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+      +'<span style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--blue2)">🏦 Pré-paiement estimé</span>'
+      +'<button class="btn-sm btn-ghost" onclick="recalerPrepaiement()">📖 J\'ai lu le site</button></div>'
+      +'<div class="ir"><span class="il">Graine de minuit</span><span class="iv">'+fmtF(_fdp.principal||0)+'</span></div>'
+      +'<div style="font-size:10px;color:var(--t3);margin:-4px 0 6px">'+_src+'</div>'
+      +'<div class="ir"><span class="il">+ Recharges créditées aujourd\'hui</span><span class="iv c-green">'+fmtF(_rj)+'</span></div>'
+      +'<div class="ir"><span class="il">± Activité du jour (Mac)</span><span class="iv" style="color:'+(_var===null?'var(--t3)':_var>=0?'var(--green2)':'var(--red2)')+'">'+(_var===null?'en attente des bots':(_var>=0?'+':'')+fmtF(_var))+'</span></div>'
+      +'<div style="height:1px;background:var(--b2);margin:8px 0"></div>'
+      +'<div class="ir"><span class="il" style="font-weight:700;font-size:13px">= Pré-paiement maintenant</span><span style="font-family:\'DM Mono\',monospace;font-size:17px;font-weight:700;color:'+(_pp===null?'var(--t3)':'var(--blue2)')+'">'+(_pp===null?'—':fmtF(_pp))+'</span></div>'
+      +(_pp===null&&typeof prepaiementMotif==='function'?'<div style="font-size:10px;color:var(--warn);margin-top:4px">⏳ Non calculable : '+esc(prepaiementMotif())+'</div>':'')
+      +'</div>';
+  }
+
   // ── OBJECTIF ──
   if (S.objectif>0) {
     var pct=Math.min(100,(benefNetReel/S.objectif)*100);
@@ -1658,8 +1687,17 @@ function renderSaisie() {
       }
     } catch(e){}
 
+    /* Graine proposée : le prépaiement validé à la dernière clôture. Il n'y a
+       pas de meilleure estimation disponible sans lire le site ; on la
+       propose, il confirme ou corrige. */
+    var _prop=null, _propSrc='';
+    try {
+      var _la=S.journeesArchivees[0];
+      if (_la && _la.cloture && _la.cloture.prepaiement!=null) { _prop=_la.cloture.prepaiement; _propSrc='clôture du '+_la.dateShort; }
+    } catch(e){}
     html+='<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-p">Pré-paiement</span>'+S.principal.nom+'</div>'
-        +'<input class="sol-inp" type="number" id="minuit-p" placeholder="À lire sur le site..." inputmode="numeric"></div>'
+        +'<input class="sol-inp" type="number" id="minuit-p" placeholder="À lire sur le site..." inputmode="numeric"'+(_prop!==null?' value="'+_prop+'"':'')+'></div>'
+        +(_prop!==null?'<div style="font-size:10px;color:var(--green2);margin:-4px 0 10px 2px;line-height:1.45">✅ Proposé d\'après la '+_propSrc+' ('+fmt(_prop)+'). Corrige si le site dit autre chose.</div>':'')
         /* Seul champ des trois que nous ne pouvons pas proposer, et il faut le
            dire : le prépaiement calculé vaut « ce départ + recharges +
            variation ». Le déduire de lui-même n'a pas de sens. Un champ vide
@@ -2092,6 +2130,31 @@ function validerMinuit() {
   toast('🌙 Fonds figé : '+fmtF(total));
 }
 
+function recalerPrepaiement() {
+  /* « J'ai lu X sur le site » : on aligne le modèle sur la valeur observée.
+     La dérive absorbée est tracée deux fois — en ajustement (elle corrige le
+     solde attendu) et dans les écarts (tranche « recal ») — pour qu'on voie,
+     jour après jour, si le modèle dérive et de combien. */
+  if(!S.journee.fondsDepart){toast('❌ Fige d\'abord le point de minuit');return;}
+  var est=(typeof prepaiementCalcule==='function')?prepaiementCalcule():null;
+  var saisie=prompt('Pré-paiement lu sur le site (FCFA) :'+(est!==null?'\n\nEstimé par l\'app : '+fmt(est)+' FCFA':''));
+  if(saisie===null) return;
+  var lu=parseFloat(String(saisie).replace(/\s/g,'').replace(',','.'));
+  if(isNaN(lu)||lu<0){toast('❌ Montant invalide');return;}
+  var fd=S.journee.fondsDepart;
+  var base=(est!==null)?est:Math.round((fd.principal||0)+(typeof rechargesJour==='function'?rechargesJour():0));
+  var deriv=Math.round(lu-base);
+  fd.principal=Math.round((fd.principal||0)+deriv);
+  fd.source='recalage'; fd.ts=Date.now(); fd.sourceDate=S.journee.date;
+  S.principal.solde=Math.round(lu);
+  if(deriv!==0){
+    S.journee.ajustements.push({id:Date.now(),type:deriv>0?'apport':'retrait',montant:Math.abs(deriv),motif:'🔧 Recalage pré-paiement (site : '+fmt(lu)+')',ts:Date.now(),auto:true});
+    S.surplusHist.push({id:Date.now()+1,montant:deriv,ts:Date.now(),tranche:'recal',caisse:Math.round(lu),attendu:Math.round(base)});
+  }
+  saveState(); renderHome(); renderSaisie(); renderTBar();
+  try { if (typeof window.pxSync==='function') window.pxSync(true); } catch(e){}
+  toast(deriv===0?'✅ Le modèle était juste':'🔧 Recalé : '+(deriv>0?'+':'')+fmtF(deriv)+' d\'écart absorbé');
+}
 function corrigerBilan14() {
   if(!S.journee.bilan14) return;
   if(!confirm('Corriger le bilan 14H ?\n\nLes valeurs saisies seront effacées et tu pourras les ressaisir.')) return;
@@ -2136,7 +2199,8 @@ function valider(id) {
 
   var bilan={dep:dep, ret:ret, ecartDep:ecartDep, ecartRet:ecartRet,
     gainBrut:g.gainBrut, frais:g.frais, gainNet:g.gainNet,
-    soldeAttendu:soldeAttendu, totalReel:totalReel, diff:diff, statut:statut, ts:Date.now()};
+    soldeAttendu:soldeAttendu, totalReel:totalReel, diff:diff, statut:statut, ts:Date.now(),
+    prepaiement:(isNaN(pVal)?null:Math.round(pVal))};
 
   if (id==='14h') {
     S.journee.bilan14=bilan;
@@ -2165,9 +2229,23 @@ function valider(id) {
       roulementFinal:totalRoulement()
     };
     S.journeesArchivees.unshift(journee);
-    S.journee={date:todayStr(), fondsDepart:null, ajustements:[], bilan14:null, cloture:null};
+    /* ══ GRAINE DU LENDEMAIN ══
+       Avant : la nouvelle journée repartait avec fondsDepart=null. Tant que
+       le point de minuit n'était pas refait, le prépaiement n'était plus
+       calculable et tous les écarts se calculaient contre zéro. C'est ce qui
+       donnait l'impression que l'app « ne connaît pas le prépaiement ».
+       Maintenant : la caisse réelle validée à la clôture (prépaiement +
+       soldes Wave) devient le fonds de départ de la journée suivante. Le
+       modèle repart d'une valeur observée. Le point de minuit reste possible
+       pour recaler. */
+    var seed=null;
+    if (allFilled) {
+      var sw=[]; for(var i=0;i<S.wallets.length;i++) sw.push({nom:S.wallets[i].nom, solde:wVals[i]});
+      seed={principal:Math.round(pVal), wallets:sw, total:Math.round(totalReel), auto:true, source:'cloture', sourceDate:S.journee.date, ts:Date.now()};
+    }
+    S.journee={date:todayStr(), fondsDepart:seed, ajustements:[], bilan14:null, cloture:null};
     saveState(); renderTBar(); renderSaisie(); renderHome(); renderHist();
-    toast('🎉 Journée clôturée — Bénéfice net réel : +'+fmtF(journee.benefNetReel));
+    toast('🎉 Journée clôturée — Bénéfice net réel : +'+fmtF(journee.benefNetReel)+(seed?' · fonds de demain reportés':''));
     showPage('pg-hist',null);
     // Proposition de sauvegarde : la clôture est le meilleur moment
     setTimeout(function(){
@@ -2358,14 +2436,17 @@ function calcRech() {
   var prev=document.getElementById('rechPreview'); if(!prev) return;
   if(isNaN(e)||isNaN(c)){prev.style.display='none';return;}
   prev.style.display='block';
-  // National: 1% frais nets. Inter: 1.5% prélevé - 1% remboursé = 0.5% net
+  /* ══ COÛT RÉEL, PAS THÉORIQUE ══
+     Le coût d'une recharge, c'est ce qui est sorti de Wave moins ce que le
+     site a crédité : frais Wave et écart de change sont déjà dans ces deux
+     chiffres. Avant, on soustrayait EN PLUS des frais théoriques (1 %), donc
+     le coût était compté deux fois — 5 000 F d'erreur par recharge de
+     500 000, et un faux « manquant » de 5 000 au jalon suivant. */
   var taux=rechType==='national'?(S.taux.rechNat/100):(S.taux.rechInter/100);
-  var frais=Math.round(e*taux);
-  var cashback=rechType==='international'?Math.round(e*0.01):0;
-  var benef=Math.round(c-e-frais);
-  var fEl=document.getElementById('rechFrais');if(fEl)fEl.textContent='-'+fmtF(frais)+(rechType==='international'?' (1.5%−1% remb.)':'');
+  var fraisTheo=Math.round(e*taux);
+  var benef=Math.round(c-e);
+  var fEl=document.getElementById('rechFrais');if(fEl)fEl.textContent='≈ '+fmtF(fraisTheo)+' (déjà inclus)';
   var rEl=document.getElementById('rechRecoit');if(rEl)rEl.textContent=fmtF(c);
-  var cbEl=document.getElementById('rechCashback');if(cbEl){cbEl.parentElement.style.display=rechType==='international'?'flex':'none';cbEl.textContent='+'+fmtF(cashback);}
   var bEl=document.getElementById('rechBenef');
   if(bEl){bEl.textContent=(benef>=0?'+':'')+fmtF(benef);bEl.style.color=benef>=0?'var(--green2)':'var(--red2)';}
 }
@@ -2375,19 +2456,22 @@ function saveRech() {
   var note=document.getElementById('rechNote').value.trim();
   if(isNaN(e)||e<=0){toast('❌ Entrez le montant envoyé');return;}
   if(isNaN(c)||c<=0){toast('❌ Entrez la valeur crypto');return;}
-  var taux=rechType==='national'?(S.taux.rechNat/100):(S.taux.rechInter/100);
-  var frais=Math.round(e*taux);
-  var cashback=rechType==='international'?Math.round(e*0.01):0;
-  var benef=Math.round(c-e-frais);
-  S.rechargements.push({id:Date.now(),ts:Date.now(),envoye:e,crypto:c,frais:frais,cashback:cashback,recoit:c,benef:benef,note:note,date:S.journee.date,typeTransfert:rechType});
+  // benef = crédité − sorti (coût réel, frais et change inclus) ; `frais`
+  // garde le coût réel pour l'historique et les stats, jamais une théorie.
+  var benef=Math.round(c-e);
+  var frais=Math.max(0,Math.round(e-c));
+  S.rechargements.push({id:Date.now(),ts:Date.now(),envoye:e,debite:e,crypto:c,frais:frais,cashback:0,recoit:c,benef:benef,note:note,date:S.journee.date,typeTransfert:rechType,reel:true});
   saveState(); closeModal('modalRech');
   var re=document.getElementById('rechEnvoye');if(re)re.value='';
   var rc=document.getElementById('rechCrypto');if(rc)rc.value='';
   var rn=document.getElementById('rechNote');if(rn)rn.value='';
   var rp=document.getElementById('rechPreview');if(rp)rp.style.display='none';
   rechType='national'; setRechType('national');
-  renderRech(); renderHome();
-  toast(benef>=0?'✅ +'+fmtF(benef)+' bénéfice crypto':'⚠️ '+fmtF(benef)+' perte crypto');
+  renderRech(); renderHome(); renderSaisie(); renderTBar();
+  // Le prépaiement estimé vient de bouger : on resynchronise les champs
+  // proposés (jalons) sans attendre le prochain passage des bots.
+  try { if (typeof window.pxSync==='function') window.pxSync(true); } catch(e){}
+  toast(benef>=0?'✅ Recharge : +'+fmtF(benef)+' de gain':'✅ Recharge enregistrée — coût '+fmtF(Math.abs(benef)));
 }
 function renderRech() {
   var today=S.journee.date;
@@ -2402,7 +2486,7 @@ function renderRech() {
       stEl.innerHTML='<div class="hist-stats" style="margin-bottom:10px">'
         +'<div class="hist-stats-title">📊 Rechargements du jour ('+today+')</div>'
         +'<div class="hsr"><span class="hsl">💰 Pré-paiement rechargé</span><span class="hsv c-blue">'+fmtF(tER)+'</span></div>'
-        +'<div class="hsr"><span class="hsl">⚠️ Frais Wave total</span><span class="hsv c-warn">-'+fmtF(tEF)+'</span></div>'
+        +'<div class="hsr"><span class="hsl">⚠️ Coût des recharges (frais + change)</span><span class="hsv c-warn">-'+fmtF(tEF)+'</span></div>'
         +'<div class="hsr"><span class="hsl" style="font-weight:700">'+(tEB>=0?'✅ Bénéfice crypto':'❌ Perte crypto')+'</span>'
         +'<span class="hsv" style="color:'+(tEB>=0?'var(--green2)':'var(--red2)')+'">'+( tEB>=0?'+':'')+fmtF(tEB)+'</span></div>'
         +'</div>';
@@ -2420,11 +2504,9 @@ function renderRech() {
         +'<div style="margin-top:3px">'+typeTag+(r.note?'<span style="font-size:10px;color:var(--t3);margin-left:6px">📝 '+esc(r.note)+'</span>':'')+'</div></div>'
         +'<span class="badge '+(r.benef>=0?'badge-ok':'badge-manquant')+'">'+(r.benef>=0?'✅ +':' ❌ ')+fmtF(Math.abs(r.benef))+'</span></div>'
         +'<div class="rech-detail">'
-        +'<div class="ir"><span class="il">Montant envoyé Wave</span><span class="iv">'+fmtF(r.envoye)+'</span></div>'
-        +'<div class="ir"><span class="il">Valeur crypto vendue</span><span class="iv c-blue">'+fmtF(r.crypto)+'</span></div>'
-        +'<div class="ir"><span class="il">Frais Wave nets</span><span class="iv c-warn">-'+fmtF(r.frais)+'</span></div>'
-        +(r.typeTransfert==='international'?'<div class="ir"><span class="il" style="color:var(--green2)">💚 Cashback Wave (1%)</span><span class="iv c-green">+'+fmtF(r.cashback||Math.round(r.envoye*0.01))+'</span></div>':'')
-        +'<div class="ir"><span class="il" style="font-weight:700">Pré-paiement reçoit</span><span class="iv c-green">'+fmtF(r.recoit)+'</span></div>'
+        +'<div class="ir"><span class="il">Sorti de Wave</span><span class="iv">'+fmtF(r.debite||r.envoye)+'</span></div>'
+        +'<div class="ir"><span class="il" style="font-weight:700">Crédité sur le pré-paiement</span><span class="iv c-green">'+fmtF(r.recoit)+'</span></div>'
+        +'<div class="ir"><span class="il">'+(r.reel?'Coût réel (frais + change)':'Frais Wave (ancien calcul)')+'</span><span class="iv c-warn">-'+fmtF(r.frais)+'</span></div>'
         +'</div>'
         +'<div style="text-align:right;margin-top:8px"><button class="btn-sm btn-danger" onclick="delRech('+r.id+')">🗑️ Supprimer</button></div>'
         +'</div>';
@@ -2501,7 +2583,7 @@ function renderSurplusList() {
   for(var i=liste.length-1;i>=0;i--){
     var s=liste[i];
     var isS=s.montant>=0;
-    var trLbl=s.tranche==='14h'?'Bilan 14H':s.tranche==='00h'?'Clôture 00H':'Contrôle manuel';
+    var trLbl=s.tranche==='14h'?'Bilan 14H':s.tranche==='00h'?'Clôture 00H':s.tranche==='recal'?'🔧 Recalage pré-paiement':'Contrôle manuel';
     html+='<div class="card-sm" style="border-left:3px solid '+(isS?'rgba(177,151,252,0.4)':'rgba(255,77,109,0.4)')+'">'
         +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
         +'<span style="font-weight:700;font-size:12px">'+fmtDate(s.ts)+' · '+fmtTime(s.ts)+'</span>'
