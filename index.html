@@ -1729,6 +1729,7 @@ function renderSaisie() {
         +'<input class="fd-inp" type="number" inputmode="numeric" value="'+fd.principal+'"'
         +' onchange="majFondDepart(\'p\',0,this.value)"></div>';
     for (var i=0; i<fd.wallets.length; i++) {
+      if (estHorsCaisse(S.wallets[i]||fd.wallets[i])) continue;   // compte DepotPlus : hors caisse
       var au = soldeAuto(fd.wallets[i].nom);
       var estManuel = au!==null && Number(au)!==Number(fd.wallets[i].solde);
       html+='<div class="ir"><span class="il">📱 '+fd.wallets[i].nom
@@ -1742,7 +1743,15 @@ function renderSaisie() {
           +' onchange="majFondDepart(\'w\','+i+',this.value)"></span></div>';
     }
     html+='<div class="ir" style="border-top:1px solid var(--b2);margin-top:4px;padding-top:8px"><span class="il" style="font-weight:700">Total fonds de départ</span><span class="iv c-gold" style="font-size:14px">'+fmtF(fd.total)+'</span></div>'
-        +'</div></div>';
+        +'<div style="font-size:10px;color:var(--t3);margin-top:6px">'
+        +(fd.baseTs?'▶️ Suivi démarré à '+fmtTime(fd.baseTs)+' · déjà passés avant : '+fmt(fd.baseDep||0)+' dépôts / '+fmt(fd.baseRet||0)+' retraits'
+          :fd.source==='cloture'?'Reporté de la clôture du '+(fd.sourceDate||'')
+          :fd.source==='report'?'⚠️ Reporté automatiquement au changement de jour (pas vérifié)'
+          :fd.source==='recalage'?'Recalé sur le site'
+          :'Saisi au point de minuit')+'</div>'
+        +'</div>'
+        +'<button class="btn-sm btn-ghost" style="margin-top:10px;width:100%" onclick="redemarrerSuivi()">▶️ Redémarrer le suivi maintenant avec les soldes réels</button>'
+        +'</div>';
   } else {
     html+='<div class="step-body">'
         +'<div class="sol-block"><div class="sol-title">Saisissez les soldes réels maintenant</div>';
@@ -1763,17 +1772,20 @@ function renderSaisie() {
        demain, figé à l'heure, tout soit juste. */
     try {
       var _lv = window.PRADEX && window.PRADEX.live;
-      if (memeJour() && _lv && _lv.journee &&
-          (Number(_lv.journee.depots) > 0 || Number(_lv.journee.retraits) > 0)) {
+      var _bd = 0, _br = 0, _src = 'à saisir';
+      if (memeJour() && _lv && _lv.journee) { _bd = Number(_lv.journee.depots)||0; _br = Number(_lv.journee.retraits)||0; _src = 'lus par les bots'; }
+      if (S.journee.restart || _bd > 0 || _br > 0) {
         html+='<div style="background:var(--wrd);border:1px solid rgba(255,176,32,0.28);'
             +'border-radius:10px;padding:9px 11px;margin-bottom:10px;font-size:11px;'
             +'line-height:1.5;color:var(--warn)">'
-            +'<b>▶️ La journée a déjà tourné : le suivi démarrera maintenant.</b><br>'
-            +'<span style="color:var(--t2)">Déjà passé aujourd\'hui : '
-            +fmtF(_lv.journee.depots)+' de dépôts et '+fmtF(_lv.journee.retraits)
-            +' de retraits — déjà reflétés dans les soldes que tu saisis. '
-            +'À partir du moment où tu figes, seuls les mouvements suivants '
-            +'compteront dans les gains, le prépaiement estimé et le point du soir.</span></div>';
+            +'<b>▶️ Le suivi démarrera au moment où tu figes.</b><br>'
+            +'<span style="color:var(--t2)">Les soldes que tu saisis reflètent déjà l\'activité du jour. '
+            +'Indique ce qui est déjà passé aujourd\'hui ('+_src+') : seuls les mouvements suivants '
+            +'compteront dans les gains, le prépaiement estimé et le point du soir.</span>'
+            +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">'
+            +'<div><div style="font-size:9px;color:var(--t3);margin-bottom:3px">Dépôts déjà faits</div><input class="finp" type="number" id="minuit-basedep" value="'+_bd+'" inputmode="numeric" style="padding:8px"></div>'
+            +'<div><div style="font-size:9px;color:var(--t3);margin-bottom:3px">Retraits déjà faits</div><input class="finp" type="number" id="minuit-baseret" value="'+_br+'" inputmode="numeric" style="padding:8px"></div>'
+            +'</div></div>';
       }
     } catch(e){}
 
@@ -2101,7 +2113,7 @@ function onSoldeInput(id) {
     if (!estHorsCaisse(S.wallets[i]) && !isNaN(wVals[i])) {
       runTotal+=wVals[i];
       bdHtml+='<div class="tot-row"><span style="color:var(--green2)">+ '+S.wallets[i].nom+'</span><span style="font-family:\'DM Mono\',monospace;font-weight:600">'+fmtF(wVals[i])+'</span></div>';
-    } else {
+    } else if (!estHorsCaisse(S.wallets[i])) {
       bdHtml+='<div class="tot-row"><span style="color:var(--t3)">+ '+S.wallets[i].nom+'</span><span style="font-size:10px;color:var(--t3)">non renseigné</span></div>';
     }
   }
@@ -2205,6 +2217,23 @@ function restaurerSoldeAuto(idx) {
   majFondDepart('w', idx, au);
 }
 
+function redemarrerSuivi() {
+  /* Le fonds de départ affiché est faux (report automatique d'une vieille
+     journée, graine jamais vérifiée…) : on repart des soldes réels lus
+     MAINTENANT. Les gains, le prépaiement estimé et le point du soir ne
+     compteront que ce qui vient après. */
+  if(!confirm('Redémarrer le suivi maintenant ?\n\nLe fonds de départ actuel et le bilan 14H du jour (s\'il existe) seront effacés. Tu vas ressaisir les soldes réels de cet instant, et seuls les mouvements suivants compteront.')) return;
+  if (S.journee.bilan14) {
+    var b=S.journee.bilan14;
+    S.surplusHist=S.surplusHist.filter(function(e){ return !(e.tranche==='14h'&&Math.abs(e.ts-b.ts)<5000); });
+    S.journee.bilan14=null;
+  }
+  S.journee.fondsDepart=null;
+  S.journee.restart=true;
+  saveState(); renderTBar(); renderSaisie(); renderHome();
+  showPage('pg-saisie',null);
+  toast('▶️ Saisis les soldes réels de maintenant puis « Figer »');
+}
 function validerMinuit() {
   var pEl=document.getElementById('minuit-p');
   var pVal=pEl?parseFloat(pEl.value):NaN;
@@ -2223,14 +2252,16 @@ function validerMinuit() {
   // compter, à partir d'ici, que ce qui vient après (gains, prépaiement, point).
   var _demarre=false;
   try {
-    var _lv2=window.PRADEX&&window.PRADEX.live;
-    if (_lv2&&_lv2.journee&&memeJour()&&(Number(_lv2.journee.depots)>0||Number(_lv2.journee.retraits)>0)) {
-      S.journee.fondsDepart.baseDep=Number(_lv2.journee.depots)||0;
-      S.journee.fondsDepart.baseRet=Number(_lv2.journee.retraits)||0;
+    var _bdEl=document.getElementById('minuit-basedep'), _brEl=document.getElementById('minuit-baseret');
+    var _bd=_bdEl?(parseFloat(_bdEl.value)||0):0, _br=_brEl?(parseFloat(_brEl.value)||0):0;
+    if (S.journee.restart || _bd>0 || _br>0) {
+      S.journee.fondsDepart.baseDep=_bd;
+      S.journee.fondsDepart.baseRet=_br;
       S.journee.fondsDepart.baseTs=Date.now();
       S.journee.fondsDepart.source='demarrage';
       _demarre=true;
     }
+    S.journee.restart=false;
   } catch(e){}
   S.principal.solde=pVal;
   for (var i=0; i<S.wallets.length; i++) S.wallets[i].solde=wSoldes[i].solde;
