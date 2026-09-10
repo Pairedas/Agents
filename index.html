@@ -1411,7 +1411,7 @@ function renderTBar() {
       else cls=s.data.statut==='surplus'?'tpill twarn':s.data.statut==='manquant'?'tpill tdanger':'tpill done';
     }
     html+='<div class="'+cls+'" onclick="showPage(\'pg-saisie\',null)">'
-        +'<div class="tpill-dot"></div>'+s.icon+' '+s.lbl+(isDone?(s.id==='minuit'&&s.data.aConfirmer?' ⏳':' ✓'):'')+'</div>';
+        +'<div class="tpill-dot"></div>'+s.icon+' '+s.lbl+(isDone?(s.id==='minuit'&&s.data.aConfirmer?' ⏳':' ✓'):(s.id==='14h'&&bilan14NonApplicable()?' ⏭️':''))+'</div>';
   }
   var el=document.getElementById('tBar'); if(el) el.innerHTML=html;
 }
@@ -1887,6 +1887,11 @@ function renderSaisie() {
           +'</div>'
           +(S.journee.cloture?'':'<button class="btn-sm btn-ghost" style="margin-top:10px;width:100%" onclick="corrigerBilan14()">✏️ Corriger le bilan 14H</button>')
           +'</div>';
+    } else if (bilan14NonApplicable()) {
+      html+='<div class="step-body"><div style="padding:10px 12px;background:var(--bg2);border-radius:10px;font-size:11px;color:var(--t2);line-height:1.5">'
+          +'⏭️ <b>Non applicable aujourd\'hui.</b> Le suivi a démarré à '+fmtTime(S.journee.fondsDepart.baseTs)
+          +', après 14h : la période 00h→14h est entièrement avant ton démarrage, il n\'y a rien à mesurer. '
+          +'Passe directement à la <b>clôture</b> ce soir.</div></div>';
     } else {
       html+='<div class="step-body">'+buildSaisieForm('14h','Cumul dépôts 00H → 14H (FCFA)','Cumul retraits 00H → 14H (FCFA)','✅ Valider bilan 14H',false)+'</div>';
     }
@@ -2001,26 +2006,13 @@ function buildSaisieForm(id, lblDep, lblRet, btnTxt, isCloture) {
          quand tout est rempli, il reste UN geste à faire, et le dire
          mollement reviendrait à laisser croire que c'est fait. Rien n'est
          jamais écrit dans son état financier sans son clic. */
-      var pp = (typeof prepaiementCalcule === 'function') ? prepaiementCalcule() : null;
-      if (pp != null) {
-        att = '<div class="att-bloc att-pret">'
-            + '<div class="att-titre">✅ ' + quoi
-            + " Tout est prêt — il ne manque que ta validation.</div>"
-            + '<div class="att-txt">Les volumes, tes soldes Wave et ton '
-            + 'pré-paiement (<b>' + fmtF(pp) + ' F</b>, calculé) sont '
-            + 'remplis ci-dessous. <b>Rien n\'est enregistré tant que tu '
-            + "n'as pas cliqué.</b> Vérifie le pré-paiement contre "
-            + "ton compte 1xbet — s'il diffère, corrige-le, ta saisie "
-            + 'gagne toujours.</div></div>';
-      } else {
-        att = '<div class="att-bloc">'
-            + '<div class="att-titre">⏳ ' + quoi + " Rien n'a été validé à ta place.</div>"
-            + '<div class="att-txt">Les volumes et tes soldes Wave sont déjà remplis'
-            + ' ci-dessous, avec les chiffres de la bonne période. '
-            + '<b>Il ne manque que ton pré-paiement</b> — '
-            + prepaiementMotif()
-            + ' Tape-le, vérifie le reste, et valide.</div></div>';
-      }
+      /* Règle simple : les bots remplissent les VOLUMES ; les soldes
+         (pré-paiement, Wave) sont saisis par lui. Un seul message. */
+      att = '<div class="att-bloc">'
+          + '<div class="att-titre">⏳ ' + quoi + " Rien n'a été validé à ta place.</div>"
+          + '<div class="att-txt">Les volumes de la période sont remplis par les bots. '
+          + '<b>Tape ton pré-paiement et ton solde Wave</b>, vérifie, puis valide. '
+          + "Rien n'est enregistré sans ton clic.</div></div>";
     }
   var html=att+'<div class="card" style="background:var(--bg2);border:1px solid var(--b1)">'
           +'<div class="fgrp"><label class="flbl">'+lblDep+'</label>'
@@ -2179,6 +2171,7 @@ function jalonEnAttente(id) {
     if (id === '14h') {
       if (S.journee.bilan14) return false;          // déjà validé
       if (!fondsConfirme()) return false;           // minuit pas encore figé/confirmé
+      if (bilan14NonApplicable()) return false;     // démarrage après 14h
       return new Date().getHours() >= 14;
     }
     if (id === '00h') {
@@ -2266,6 +2259,13 @@ function corrigerFonds() {
   showPage('pg-saisie',null);
   toast('✏️ Corrige les soldes puis « Figer »');
 }
+function bilan14NonApplicable() {
+  // Suivi démarré après 14h : le point 00h→14h est entièrement AVANT le
+  // démarrage, il n'y a rien à mesurer. On passe directement à la clôture.
+  var fd=S.journee.fondsDepart;
+  if(!fd||!fd.baseTs||S.journee.bilan14) return false;
+  return new Date(fd.baseTs).getHours()>=14;
+}
 function redemarrerSuivi() {
   /* Le fonds de départ affiché est faux (report automatique d'une vieille
      journée, graine jamais vérifiée…) : on repart des soldes réels lus
@@ -2313,8 +2313,8 @@ function validerMinuit() {
     }
     S.journee.restart=false;
   } catch(e){}
-  S.principal.solde=pVal;
-  for (var i=0; i<S.wallets.length; i++) S.wallets[i].solde=wSoldes[i].solde;
+  S.principal.solde=pVal; S.principal.soldeTs=Date.now();
+  for (var i=0; i<S.wallets.length; i++) { S.wallets[i].solde=wSoldes[i].solde; if(!estHorsCaisse(S.wallets[i])) S.wallets[i].soldeTs=Date.now(); }
   saveState(); renderTBar(); renderSaisie(); renderHome();
   toast(_demarre?'▶️ Suivi démarré à '+fmtTime(Date.now())+' — fonds : '+fmtF(total):'🌙 Fonds figé : '+fmtF(total));
 }
@@ -2443,17 +2443,24 @@ function pointComptes(){
     if(a.compte&&att[a.compte]!==undefined) att[a.compte]+=s; else nonAttrib+=s;
   }
   var sd=(window.PRADEX&&window.PRADEX.soldes)||{}; var hl=window.PRADEX&&window.PRADEX.heureLecture;
-  var rows=[], ppReel=null, ppSrc='';
-  if(fd.source==='recalage'&&fd.ts&&(Date.now()-fd.ts)<12*3600*1000){ ppReel=Number(S.principal.solde); ppSrc='lu sur le site à '+fmtTime(fd.ts); }
-  rows.push({code:'p',nom:S.principal.nom,attendu:att.p,reel:ppReel,src:ppSrc||'appuie sur « J\'ai lu le site »'});
+  /* « Réel » = ce que TU as saisi (point de minuit, jalon, recalage) depuis
+     le début du suivi — jamais la lecture des bots, qui peut être fausse ou
+     périmée (le 10/09 : bots 33 755, réel 425 355). Les bots restent une
+     indication à côté. */
+  var depuis=bts||Number(fd.ts)||new Date().setHours(0,0,0,0);
+  var rows=[], ppReel=null, ppSrc='à saisir au prochain jalon';
+  if(S.principal.soldeTs&&S.principal.soldeTs>=depuis){ ppReel=Number(S.principal.solde); ppSrc='saisi par toi à '+fmtTime(S.principal.soldeTs); }
+  rows.push({code:'p',nom:S.principal.nom,attendu:att.p,reel:ppReel,src:ppSrc});
   for(var i=0;i<S.wallets.length;i++){
     if(estHorsCaisse(S.wallets[i])) continue;
-    var role=roleWallet(S.wallets[i].nom), val=null, src='non lu par les bots';
+    var w=S.wallets[i], role=roleWallet(w.nom), val=null, src='à saisir au prochain jalon', botsV=null;
     try{
-      if(role==='depots'&&sd.depots!=null){ val=Number(sd.depots); src='bots'+(hl?hl({depots_lu_le:sd.depots_lu_le}):''); }
-      if(role==='retraits'&&sd.retraits!=null){ val=Number(sd.retraits); src='bots'+(hl?hl({retraits_lu_le:sd.retraits_lu_le}):''); }
+      if(role==='depots'&&sd.depots!=null) botsV=Number(sd.depots);
+      if(role==='retraits'&&sd.retraits!=null) botsV=Number(sd.retraits);
     }catch(e){}
-    rows.push({code:'w'+i,nom:S.wallets[i].nom,attendu:att['w'+i],reel:val,src:src});
+    if(w.soldeTs&&w.soldeTs>=depuis){ val=Number(w.solde); src='saisi par toi à '+fmtTime(w.soldeTs); }
+    if(botsV!==null) src+=' · bots : '+fmt(botsV);
+    rows.push({code:'w'+i,nom:w.nom,attendu:att['w'+i],reel:val,src:src});
   }
   return {rows:rows,nonAttrib:nonAttrib,dep:dep,ret:ret,virs:virs,apportRet:apportRetraitsHorsCaisse(ret),bts:bts};
 }
@@ -2473,7 +2480,7 @@ function recalerPrepaiement() {
   var deriv=Math.round(lu-base);
   fd.principal=Math.round((fd.principal||0)+deriv);
   fd.source='recalage'; fd.ts=Date.now(); fd.sourceDate=S.journee.date;
-  S.principal.solde=Math.round(lu);
+  S.principal.solde=Math.round(lu); S.principal.soldeTs=Date.now();
   if(deriv!==0){
     S.journee.ajustements.push({id:Date.now(),type:deriv>0?'apport':'retrait',montant:Math.abs(deriv),motif:'🔧 Recalage pré-paiement (site : '+fmt(lu)+')',ts:Date.now(),auto:true,compte:'p'});
     S.surplusHist.push({id:Date.now()+1,montant:deriv,ts:Date.now(),tranche:'recal',caisse:Math.round(lu),attendu:Math.round(base)});
@@ -2518,8 +2525,8 @@ function valider(id) {
     totalReel=pVal; for(var i=0;i<wVals.length;i++) totalReel+=wVals[i];
     diff=totalReel-soldeAttendu;
     if(diff>10) statut='surplus'; else if(diff<-10) statut='manquant';
-    S.principal.solde=pVal;
-    for(var i=0;i<S.wallets.length;i++){ if(!estHorsCaisse(S.wallets[i])) S.wallets[i].solde=wVals[i]; }
+    S.principal.solde=pVal; S.principal.soldeTs=Date.now();
+    for(var i=0;i<S.wallets.length;i++){ if(!estHorsCaisse(S.wallets[i])) { S.wallets[i].solde=wVals[i]; S.wallets[i].soldeTs=Date.now(); } }
     if (statut==='surplus'||statut==='manquant') {
       S.surplusHist.push({id:Date.now(), montant:Math.round(diff), ts:Date.now(), tranche:id,
         caisse:Math.round(totalReel), attendu:Math.round(soldeAttendu)});
