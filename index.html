@@ -850,6 +850,7 @@ function loadState() {
       if (!S.seuilCapital) S.seuilCapital = 0;
       if (!S.credits) S.credits = [];
       if (!S.virements) S.virements = [];
+      if (!S.hcFix1) { try { recalcFondsDepartTotal(); } catch(e){} S.hcFix1 = true; saveState(); }
       // Réparation one-shot : les clôtures faites après minuit ont archivé
       // benefCrypto=0 (bug de date). On rattache les rechargements aux
       // journées par date exacte, puis par date-1 (clôture après minuit).
@@ -983,7 +984,7 @@ function calcGains(dep, ret) {
 }
 function totalRoulement() {
   var t = S.principal.solde;
-  for (var i=0; i<S.wallets.length; i++) t += S.wallets[i].solde;
+  for (var i=0; i<S.wallets.length; i++) { if (!estHorsCaisse(S.wallets[i])) t += S.wallets[i].solde; }
   return t;
 }
 
@@ -1017,6 +1018,7 @@ function caisseFraiche() {
 
     var t = Number(pp), det = [{nom: S.principal.nom, solde: Number(pp)}];
     for (var i = 0; i < S.wallets.length; i++) {
+      if (estHorsCaisse(S.wallets[i])) continue;
       var c = cw(S.wallets[i].nom);
       var v = (c === 'depots') ? sd.depots : (c === 'retraits') ? sd.retraits : null;
       if (v === null || v === undefined) {
@@ -1205,8 +1207,9 @@ function autoValiderJalon() {
        heures produirait un faux « manquant » qu'il verrait comme une alerte
        de caisse, alors que ce ne serait qu'un chiffre périmé. */
     var sd = window.PRADEX && window.PRADEX.soldes;
-    if (!sd || sd.depots == null || sd.retraits == null) return null;
-    var ages = [sd.depots_lu_le, sd.retraits_lu_le];
+    var besoinRet = retraitsPayesEnCaisse();
+    if (!sd || sd.depots == null || (besoinRet && sd.retraits == null)) return null;
+    var ages = besoinRet ? [sd.depots_lu_le, sd.retraits_lu_le] : [sd.depots_lu_le];
     for (var a=0; a<ages.length; a++) {
       if (!ages[a]) return null;
       var t = new Date(ages[a]).getTime();
@@ -1230,6 +1233,7 @@ function autoValiderJalon() {
     var pEl = document.getElementById('ssol-p-'+id);
     if (!pEl || isNaN(parseFloat(pEl.value))) return null;
     for (var i=0; i<S.wallets.length; i++) {
+      if (estHorsCaisse(S.wallets[i])) continue;
       var w = document.getElementById('ssol-w-'+id+'-'+i);
       if (!w || isNaN(parseFloat(w.value))) return null;
     }
@@ -1249,7 +1253,8 @@ function autoValiderJalon() {
 }
 
 function soldeAttenduJour() {
-  return getFondsDepart() + gainJour().gainNet + benefCryptoJour();
+  var gj=gainJour();
+  return getFondsDepart() + gj.gainNet + benefCryptoJour() + apportRetraitsHorsCaisse(gj.volRet);
 }
 function getStartOf(period) {
   var now = new Date();
@@ -1392,7 +1397,8 @@ function renderHome() {
   var fd=getFondsDepart();
   var bCrypto=benefCryptoJour();
   var benefNetReel=gj.gainNet+bCrypto;
-  var soldeAtt=fd+gj.gainNet+bCrypto;
+  var apRet=apportRetraitsHorsCaisse(gj.volRet);
+  var soldeAtt=fd+gj.gainNet+bCrypto+apRet;
   var benefColor=benefNetReel>=0?'var(--green2)':'var(--red2)';
   var html='';
 
@@ -1438,7 +1444,7 @@ function renderHome() {
   if (S.journee.fondsDepart) {
     html+='<div class="solde-attendu-card">'
         +'<div><div class="sa-lbl">💡 Solde attendu actuellement</div>'
-        +'<div style="font-size:10px;color:var(--t3);margin-top:2px">Fonds + gains Wave + crypto</div></div>'
+        +'<div style="font-size:10px;color:var(--t3);margin-top:2px">Fonds + gains Wave + crypto'+(apRet>0?' + retraits payés par DepotPlus '+fmt(apRet):'')+'</div></div>'
         +'<div class="sa-val">'+fmtF(soldeAtt)+'</div></div>';
   }
 
@@ -1497,6 +1503,7 @@ function renderHome() {
       +'<span style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:'+(heurePoint?'var(--gold)':'var(--t3)')+'">🕛 Point du soir — compte par compte</span>'
       +(S.wallets.length>=2?'<span class="sh-link" onclick="openModal(\'modalVirement\')">↔️ Virement</span>':'')+'</div>'
       +'<div style="font-size:10px;color:var(--t3);margin-bottom:6px">'+(heurePoint?'📨 C\'est l\'heure : compare avec ton rapport Telegram de 23h55.':'À comparer avec ton rapport Telegram de 23h55.')+' Volumes du jour : dépôts '+fmt(pc.dep)+' · retraits '+fmt(pc.ret)+'</div>'
+      +(pc.apportRet>0?'<div style="font-size:10px;color:var(--blue2);margin-bottom:4px">↩️ Retraits payés par DepotPlus, entrés au pré-paiement : +'+fmtF(Math.round(pc.apportRet))+'</div>':'')
       +rowsHtml
       +(Math.abs(pc.nonAttrib)>0.5?'<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:11px;border-bottom:1px solid var(--b1)"><span style="color:var(--warn)">⚠️ Mouvements sans compte attribué</span><span style="font-family:\'DM Mono\',monospace;font-weight:700;color:var(--warn)">'+(pc.nonAttrib>0?'+':'−')+fmtF(Math.abs(Math.round(pc.nonAttrib)))+'</span></div>':'')
       +'<div style="display:flex;justify-content:space-between;padding-top:10px"><span style="font-weight:700;font-size:13px">Total</span>'
@@ -1617,7 +1624,7 @@ function renderHome() {
     if (S.journee.fondsDepart) {
       var fd2=S.journee.fondsDepart;
       ch+='<div class="fchip fchip-p">'+esc(S.principal.nom)+' '+fmt(fd2.principal)+'</div>';
-      for (var i=0; i<fd2.wallets.length; i++) ch+='<div class="fchip fchip-w">'+esc(fd2.wallets[i].nom)+' '+fmt(fd2.wallets[i].solde)+'</div>';
+      for (var i=0; i<fd2.wallets.length; i++) { if (estHorsCaisse(S.wallets[i]||fd2.wallets[i])) continue; ch+='<div class="fchip fchip-w">'+esc(fd2.wallets[i].nom)+' '+fmt(fd2.wallets[i].solde)+'</div>'; }
     } else {
       /* ══ CE QUI A FAIT PERDRE CONFIANCE LE 26/08 ═══════════════════════
          Tant que les fonds ne sont pas figés, cette branche affichait
@@ -1766,6 +1773,7 @@ function renderSaisie() {
         +'site. Tout le reste de la journée s\'en déduit.</div>';
 
     for (var i=0; i<S.wallets.length; i++) {
+      if (estHorsCaisse(S.wallets[i])) continue;   // compte DepotPlus : pas dans cette caisse
       html+='<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-w">Wave</span>'+S.wallets[i].nom+'</div>'
           +'<input class="sol-inp" type="number" id="minuit-w-'+i+'" placeholder="Solde actuel..." inputmode="numeric"></div>';
     }
@@ -1974,6 +1982,7 @@ function buildSaisieForm(id, lblDep, lblRet, btnTxt, isCloture) {
       +'<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-p">Pré-paiement</span>'+S.principal.nom+'</div>'
       +'<input class="sol-inp" type="number" id="ssol-p-'+id+'" placeholder="Solde actuel..." inputmode="numeric" oninput="onSoldeInput(\''+id+'\')"></div>';
   for (var wi=0; wi<S.wallets.length; wi++) {
+    if (estHorsCaisse(S.wallets[wi])) continue;   // compte DepotPlus : pas dans cette caisse
     html+='<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-w">Wave</span>'+S.wallets[wi].nom+'</div>'
         +'<input class="sol-inp" type="number" id="ssol-w-'+id+'-'+wi+'" placeholder="Solde actuel..." inputmode="numeric" oninput="onSoldeInput(\''+id+'\')"></div>';
   }
@@ -2040,20 +2049,20 @@ function onSoldeInput(id) {
   var fd=getFondsDepart();
   var gainPrec=0; if(id==='00h'&&S.journee.bilan14) gainPrec=S.journee.bilan14.gainNet;
   var bCrypto=benefCryptoJour();
-  var soldeAttendu=fd+gainPrec+g.gainNet+bCrypto;
+  var soldeAttendu=fd+gainPrec+g.gainNet+bCrypto+apportRetraitsHorsCaisse(ret);
 
   var pEl=document.getElementById('ssol-p-'+id);
   var pVal=pEl?parseFloat(pEl.value):NaN;
   var wVals=[];
   for (var i=0; i<S.wallets.length; i++) {
     var wEl=document.getElementById('ssol-w-'+id+'-'+i);
-    wVals.push(wEl?parseFloat(wEl.value):NaN);
+    wVals.push(estHorsCaisse(S.wallets[i])?0:(wEl?parseFloat(wEl.value):NaN));
   }
 
   var totEl=document.getElementById('totprev-'+id);
   if (!totEl) return;
   var anyFilled=!isNaN(pVal);
-  for (var i=0; i<wVals.length; i++) { if(!isNaN(wVals[i])) { anyFilled=true; break; } }
+  for (var i=0; i<wVals.length; i++) { if(!estHorsCaisse(S.wallets[i])&&!isNaN(wVals[i])) { anyFilled=true; break; } }
   if (!anyFilled) { totEl.style.display='none'; return; }
   totEl.style.display='block';
 
@@ -2063,7 +2072,7 @@ function onSoldeInput(id) {
     bdHtml+='<div class="tot-row"><span style="color:var(--blue2)">'+S.principal.nom+'</span><span style="font-family:\'DM Mono\',monospace;font-weight:600">'+fmtF(pVal)+'</span></div>';
   }
   for (var i=0; i<S.wallets.length; i++) {
-    if (!isNaN(wVals[i])) {
+    if (!estHorsCaisse(S.wallets[i]) && !isNaN(wVals[i])) {
       runTotal+=wVals[i];
       bdHtml+='<div class="tot-row"><span style="color:var(--green2)">+ '+S.wallets[i].nom+'</span><span style="font-family:\'DM Mono\',monospace;font-weight:600">'+fmtF(wVals[i])+'</span></div>';
     } else {
@@ -2176,6 +2185,7 @@ function validerMinuit() {
   if (isNaN(pVal)) { toast('❌ Entrez le solde Pré-paiement'); return; }
   var wSoldes=[], total=pVal;
   for (var i=0; i<S.wallets.length; i++) {
+    if (estHorsCaisse(S.wallets[i])) { wSoldes.push({nom:S.wallets[i].nom, solde:Number(S.wallets[i].solde)||0}); continue; }
     var wEl=document.getElementById('minuit-w-'+i);
     var wVal=wEl?parseFloat(wEl.value):NaN;
     if (isNaN(wVal)) { toast('❌ Entrez tous les soldes Wave'); return; }
@@ -2204,6 +2214,41 @@ function walletDefaut(role){
   for(var i=0;i<S.wallets.length;i++){ if(roleWallet(S.wallets[i].nom)===role) return 'w'+i; }
   return '';
 }
+/* ══ PORTEFEUILLE HORS CAISSE ══
+   Le compte PRADEX (retraits) appartient au projet DepotPlus : son solde ne
+   compte plus dans la caisse de cette app. Un retrait client crédite quand
+   même le pré-paiement (+102 %) — l'argent vient de l'autre projet, on
+   l'affiche comme tel. Par défaut : le portefeuille reconnu « retraits » est
+   hors caisse ; modifiable dans Config. */
+function estHorsCaisse(w){
+  if(!w) return false;
+  if(w.horsCaisse!==undefined&&w.horsCaisse!==null) return !!w.horsCaisse;
+  return roleWallet(w.nom)==='retraits';
+}
+function retraitsPayesEnCaisse(){
+  var wr=walletDefaut('retraits'); if(!wr) return false;
+  return !estHorsCaisse(S.wallets[parseInt(wr.slice(1),10)]);
+}
+function apportRetraitsHorsCaisse(ret){
+  // Retraits payés depuis un compte hors caisse : ce qui sort (montant + frais)
+  // ne sort pas d'ici, mais le pré-paiement est crédité. Pour cette caisse,
+  // c'est une entrée nette égale à ce que l'autre projet a payé.
+  ret=Number(ret)||0;
+  return retraitsPayesEnCaisse()?0:ret*(1+S.taux.fraisOp/100);
+}
+function recalcFondsDepartTotal(){
+  var fd=S.journee.fondsDepart; if(!fd||!fd.wallets) return;
+  var t=Number(fd.principal)||0;
+  for(var i=0;i<fd.wallets.length;i++){ if(!estHorsCaisse(S.wallets[i]||fd.wallets[i])) t+=Number(fd.wallets[i].solde)||0; }
+  fd.total=Math.round(t);
+}
+function toggleHorsCaisse(i){
+  if(!S.wallets[i]) return;
+  S.wallets[i].horsCaisse=!estHorsCaisse(S.wallets[i]);
+  recalcFondsDepartTotal(); saveState();
+  renderCfg(); renderHome(); renderSaisie(); renderTBar();
+  toast(S.wallets[i].horsCaisse?'➖ '+S.wallets[i].nom+' exclu de la caisse':'➕ '+S.wallets[i].nom+' compté dans la caisse');
+}
 function nomCompte(code){
   if(code==='p') return S.principal.nom;
   if(code&&code.charAt(0)==='w'){ var w=S.wallets[parseInt(code.slice(1),10)]; return w?w.nom:'?'; }
@@ -2213,7 +2258,7 @@ function optionsComptes(avecPrepaiement, avecVide){
   var h='';
   if(avecVide) h+='<option value="">Non précisé</option>';
   if(avecPrepaiement) h+='<option value="p">🏦 '+esc(S.principal.nom)+'</option>';
-  for(var i=0;i<S.wallets.length;i++) h+='<option value="w'+i+'">💳 '+esc(S.wallets[i].nom)+'</option>';
+  for(var i=0;i<S.wallets.length;i++) h+='<option value="w'+i+'">💳 '+esc(S.wallets[i].nom)+(estHorsCaisse(S.wallets[i])?' (hors caisse)':'')+'</option>';
   return h;
 }
 function remplirSelectsComptes(){
@@ -2258,7 +2303,10 @@ function pointComptes(){
   var wd=walletDefaut('depots'), wr=walletDefaut('retraits'), nonAttrib=0;
   att.p+=-dep*(1-t.commDep/100)+ret*(1+t.commRet/100);
   if(wd) att[wd]+=dep*(1-t.fraisOp/100); else nonAttrib+=dep*(1-t.fraisOp/100);
-  if(wr) att[wr]-=ret*(1+t.fraisOp/100); else nonAttrib-=ret*(1+t.fraisOp/100);
+  // Retraits : la sortie (montant + frais) n'existe ici que si le compte
+  // qui paie est dans la caisse. Sinon (DepotPlus), seul le crédit du
+  // pré-paiement compte — c'est un apport venu de l'autre projet.
+  if(retraitsPayesEnCaisse()) att[wr]-=ret*(1+t.fraisOp/100);
   for(var i=0;i<S.rechargements.length;i++){
     var r=S.rechargements[i]; if(r.date!==today) continue;
     att.p+=Number(r.recoit)||0;
@@ -2277,6 +2325,7 @@ function pointComptes(){
   if(fd.source==='recalage'&&fd.ts&&(Date.now()-fd.ts)<12*3600*1000){ ppReel=Number(S.principal.solde); ppSrc='lu sur le site à '+fmtTime(fd.ts); }
   rows.push({code:'p',nom:S.principal.nom,attendu:att.p,reel:ppReel,src:ppSrc||'appuie sur « J\'ai lu le site »'});
   for(var i=0;i<S.wallets.length;i++){
+    if(estHorsCaisse(S.wallets[i])) continue;
     var role=roleWallet(S.wallets[i].nom), val=null, src='non lu par les bots';
     try{
       if(role==='depots'&&sd.depots!=null){ val=Number(sd.depots); src='bots'+(hl?hl({depots_lu_le:sd.depots_lu_le}):''); }
@@ -2284,7 +2333,7 @@ function pointComptes(){
     }catch(e){}
     rows.push({code:'w'+i,nom:S.wallets[i].nom,attendu:att['w'+i],reel:val,src:src});
   }
-  return {rows:rows,nonAttrib:nonAttrib,dep:dep,ret:ret,virs:virs};
+  return {rows:rows,nonAttrib:nonAttrib,dep:dep,ret:ret,virs:virs,apportRet:apportRetraitsHorsCaisse(ret)};
 }
 function recalerPrepaiement() {
   /* « J'ai lu X sur le site » : on aligne le modèle sur la valeur observée.
@@ -2332,12 +2381,12 @@ function valider(id) {
   var fd=getFondsDepart();
   var gainPrec=0; if(id==='00h'&&S.journee.bilan14) gainPrec=S.journee.bilan14.gainNet;
   var bCrypto=benefCryptoJour();
-  var soldeAttendu=fd+gainPrec+g.gainNet+bCrypto;
+  var soldeAttendu=fd+gainPrec+g.gainNet+bCrypto+apportRetraitsHorsCaisse(ret);
 
   var pEl=document.getElementById('ssol-p-'+id);
   var pVal=pEl?parseFloat(pEl.value):NaN;
   var wVals=[];
-  for (var i=0;i<S.wallets.length;i++) { var wEl=document.getElementById('ssol-w-'+id+'-'+i); wVals.push(wEl?parseFloat(wEl.value):NaN); }
+  for (var i=0;i<S.wallets.length;i++) { var wEl=document.getElementById('ssol-w-'+id+'-'+i); wVals.push(estHorsCaisse(S.wallets[i])?0:(wEl?parseFloat(wEl.value):NaN)); }
   var allFilled=!isNaN(pVal); for(var i=0;i<wVals.length;i++){if(isNaN(wVals[i])){allFilled=false;break;}}
 
   var totalReel=0, diff=0, statut='ok';
@@ -2346,7 +2395,7 @@ function valider(id) {
     diff=totalReel-soldeAttendu;
     if(diff>10) statut='surplus'; else if(diff<-10) statut='manquant';
     S.principal.solde=pVal;
-    for(var i=0;i<S.wallets.length;i++) S.wallets[i].solde=wVals[i];
+    for(var i=0;i<S.wallets.length;i++){ if(!estHorsCaisse(S.wallets[i])) S.wallets[i].solde=wVals[i]; }
     if (statut==='surplus'||statut==='manquant') {
       S.surplusHist.push({id:Date.now(), montant:Math.round(diff), ts:Date.now(), tranche:id,
         caisse:Math.round(totalReel), attendu:Math.round(soldeAttendu)});
@@ -2396,7 +2445,7 @@ function valider(id) {
        pour recaler. */
     var seed=null;
     if (allFilled) {
-      var sw=[]; for(var i=0;i<S.wallets.length;i++) sw.push({nom:S.wallets[i].nom, solde:wVals[i]});
+      var sw=[]; for(var i=0;i<S.wallets.length;i++) sw.push({nom:S.wallets[i].nom, solde:estHorsCaisse(S.wallets[i])?(Number(S.wallets[i].solde)||0):wVals[i]});
       seed={principal:Math.round(pVal), wallets:sw, total:Math.round(totalReel), auto:true, source:'cloture', sourceDate:S.journee.date, ts:Date.now()};
     }
     S.journee={date:todayStr(), fondsDepart:seed, ajustements:[], bilan14:null, cloture:null};
@@ -3328,8 +3377,9 @@ function renderCfg() {
   if(S.wallets.length===0) wHtml='<div style="font-size:12px;color:var(--t3);text-align:center;padding:10px">Aucun portefeuille Wave</div>';
   else {
     for(var i=0;i<S.wallets.length;i++){
-      wHtml+='<div class="wcfg-item"><div><div class="wcfg-name">📱 '+esc(S.wallets[i].nom)+'</div><div class="wcfg-sol">'+fmtF(S.wallets[i].solde)+'</div></div>'
-            +'<button class="btn-sm btn-danger" onclick="removeWallet('+i+')">✕</button></div>';
+      var hc=estHorsCaisse(S.wallets[i]);
+      wHtml+='<div class="wcfg-item"><div><div class="wcfg-name">📱 '+esc(S.wallets[i].nom)+' '+(hc?'<span class="badge" style="background:var(--wrd);color:var(--warn)">hors caisse · DepotPlus</span>':'<span class="badge badge-ok">en caisse</span>')+'</div><div class="wcfg-sol">'+fmtF(S.wallets[i].solde)+'</div></div>'
+            +'<div style="display:flex;gap:6px"><button class="btn-sm btn-ghost" onclick="toggleHorsCaisse('+i+')">'+(hc?'➕ Compter':'➖ Exclure')+'</button><button class="btn-sm btn-danger" onclick="removeWallet('+i+')">✕</button></div></div>';
     }
   }
   el.innerHTML='<div>'
