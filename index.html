@@ -1032,15 +1032,27 @@ function caisseFraiche() {
 function getFondsDepart() {
   if (!S.journee.fondsDepart) return 0;
   var base = S.journee.fondsDepart.total;
+  var _bts = Number(S.journee.fondsDepart.baseTs)||0;
   for (var i=0; i<S.journee.ajustements.length; i++) {
     var a = S.journee.ajustements[i];
+    if (_bts && a.ts && a.ts < _bts) continue;   // antérieur au démarrage du suivi
     if (a.type === 'apport') base += a.montant;
     else base -= a.montant;
   }
   return base;
 }
+/* ══ DÉMARRER LE SUIVI EN COURS DE JOURNÉE ══
+   Si les fonds sont figés à 15h37, les gains, le prépaiement estimé et le
+   point du soir ne doivent compter que ce qui se passe APRÈS 15h37. On
+   mémorise les volumes déjà passés (baseDep/baseRet) et l'heure (baseTs) ;
+   tout ce qui précède est considéré comme déjà reflété dans les soldes lus. */
+function baseVolumes() {
+  var fd=S.journee&&S.journee.fondsDepart;
+  return {dep:(fd&&Number(fd.baseDep))||0, ret:(fd&&Number(fd.baseRet))||0, ts:(fd&&Number(fd.baseTs))||0};
+}
 function gainJour() {
   var gn=0, gb=0, f=0;
+  var _bv=baseVolumes();
   /* ══ PRADEX 2/4 — capital à jour sans clôture ══
      Avant : gainJour() valait 0 tant qu'aucun bilan n'était enregistré,
      donc ton capital n'était juste qu'après un geste de saisie.
@@ -1051,9 +1063,10 @@ function gainJour() {
       && window.PRADEX && window.PRADEX.live
       && (window.PRADEX.live.depots || window.PRADEX.live.retraits)) {
     var _pxd = window.PRADEX.live.depots||0, _pxr = window.PRADEX.live.retraits||0;
-    var _pxg = calcGains(_pxd, _pxr);
+    var _dn = Math.max(0,_pxd-_bv.dep), _rn = Math.max(0,_pxr-_bv.ret);
+    var _pxg = calcGains(_dn, _rn);
     return {gainNet:_pxg.gainNet, gainBrut:_pxg.gainBrut, frais:_pxg.frais,
-            volDep:_pxd, volRet:_pxr, auto:true};
+            volDep:_pxd, volRet:_pxr, depNet:_dn, retNet:_rn, auto:true};
   }
   if (S.journee.bilan14) { gn+=S.journee.bilan14.gainNet; gb+=S.journee.bilan14.gainBrut; f+=S.journee.bilan14.frais; }
   if (S.journee.cloture) { gn+=S.journee.cloture.gainNet; gb+=S.journee.cloture.gainBrut; f+=S.journee.cloture.frais; }
@@ -1075,13 +1088,14 @@ function gainJour() {
   var vd=0, vr=0;
   if (S.journee.bilan14) { vd=S.journee.bilan14.dep; vr=S.journee.bilan14.ret; }
   if (S.journee.cloture) { vd=S.journee.cloture.dep; vr=S.journee.cloture.ret; }
-  return {gainNet:gn, gainBrut:gb, frais:f, volDep:vd, volRet:vr};
+  return {gainNet:gn, gainBrut:gb, frais:f, volDep:vd, volRet:vr, depNet:Math.max(0,vd-_bv.dep), retNet:Math.max(0,vr-_bv.ret)};
 }
 function benefCryptoJour() {
   // Date de la JOURNÉE en cours (pas l'horloge) : une clôture après minuit
   // doit compter les rechargements de la journée qu'on est en train de fermer
-  var today = S.journee.date, b=0;
+  var today = S.journee.date, b=0, _bts=baseVolumes().ts;
   for (var i=0; i<S.rechargements.length; i++) {
+    if (_bts && (S.rechargements[i].ts||0) < _bts) continue;   // antérieur au démarrage
     if (S.rechargements[i].date === today) b += S.rechargements[i].benef;
   }
   return b;
@@ -1091,9 +1105,10 @@ function rechargesJour() {
   // Les deux diffèrent des frais Wave et de l'écart de change : le 19/08,
   // 630 000 envoyés pour 624 057 crédités. C'est `recoit` qu'il faut, et
   // c'est bien la valeur crypto reçue que saveRech() y range.
-  var today = S.journee.date, r = 0;
+  var today = S.journee.date, r = 0, _bts=baseVolumes().ts;
   try {
     for (var i=0; i<S.rechargements.length; i++) {
+      if (_bts && (S.rechargements[i].ts||0) < _bts) continue;   // antérieur au démarrage
       if (S.rechargements[i].date === today) r += (S.rechargements[i].recoit || 0);
     }
   } catch(e){}
@@ -1121,6 +1136,16 @@ function prepaiementCalcule() {
      Renvoie null dès qu'un terme manque. Un prépaiement faux vaut moins que
      pas de prépaiement : c'est le chiffre le plus lourd de sa caisse. */
   try {
+    /* Suivi démarré en cours de journée : la variation du Mac couvre toute la
+       journée, y compris ce qui précède le démarrage — déjà dans le solde lu.
+       On calcule donc la variation localement, depuis le démarrage seulement. */
+    var fd0 = S.journee && S.journee.fondsDepart;
+    if (fd0 && fd0.baseTs) {
+      if (fd0.principal === undefined || fd0.principal === null) return null;
+      var gj0 = gainJour(), t0 = S.taux;
+      var v0 = -(Number(gj0.depNet)||0)*(1-t0.commDep/100) + (Number(gj0.retNet)||0)*(1+t0.commRet/100);
+      return Math.round(Number(fd0.principal) + rechargesJour() + v0);
+    }
     var p = window.PRADEX && window.PRADEX.prepaiement;
     if (!p || !p.calculable) return null;
     var v = Number(p.variation);
@@ -1254,7 +1279,7 @@ function autoValiderJalon() {
 
 function soldeAttenduJour() {
   var gj=gainJour();
-  return getFondsDepart() + gj.gainNet + benefCryptoJour() + apportRetraitsHorsCaisse(gj.volRet);
+  return getFondsDepart() + gj.gainNet + benefCryptoJour() + apportRetraitsHorsCaisse(gj.retNet);
 }
 function getStartOf(period) {
   var now = new Date();
@@ -1397,7 +1422,7 @@ function renderHome() {
   var fd=getFondsDepart();
   var bCrypto=benefCryptoJour();
   var benefNetReel=gj.gainNet+bCrypto;
-  var apRet=apportRetraitsHorsCaisse(gj.volRet);
+  var apRet=apportRetraitsHorsCaisse(gj.retNet);
   var soldeAtt=fd+gj.gainNet+bCrypto+apRet;
   var benefColor=benefNetReel>=0?'var(--green2)':'var(--red2)';
   var html='';
@@ -1461,6 +1486,7 @@ function renderHome() {
     var _src=_fdp.source==='cloture'?'reportée de la clôture du '+(_fdp.sourceDate||'')
             :_fdp.source==='report'?'reportée au changement de jour'
             :_fdp.source==='recalage'?'recalée sur le site à '+fmtTime(_fdp.ts||Date.now())
+            :_fdp.source==='demarrage'?'suivi démarré à '+fmtTime(_fdp.baseTs||Date.now())
             :'saisie au point de minuit';
     html+='<div class="card" style="border:1px solid rgba(77,171,247,0.25)">'
       +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
@@ -1502,7 +1528,7 @@ function renderHome() {
       +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
       +'<span style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:'+(heurePoint?'var(--gold)':'var(--t3)')+'">🕛 Point du soir — compte par compte</span>'
       +(S.wallets.length>=2?'<span class="sh-link" onclick="openModal(\'modalVirement\')">↔️ Virement</span>':'')+'</div>'
-      +'<div style="font-size:10px;color:var(--t3);margin-bottom:6px">'+(heurePoint?'📨 C\'est l\'heure : compare avec ton rapport Telegram de 23h55.':'À comparer avec ton rapport Telegram de 23h55.')+' Volumes du jour : dépôts '+fmt(pc.dep)+' · retraits '+fmt(pc.ret)+'</div>'
+      +'<div style="font-size:10px;color:var(--t3);margin-bottom:6px">'+(heurePoint?'📨 C\'est l\'heure : compare avec ton rapport Telegram de 23h55.':'À comparer avec ton rapport Telegram de 23h55.')+' Volumes '+(pc.bts?'depuis le démarrage à '+fmtTime(pc.bts):'du jour')+' : dépôts '+fmt(pc.dep)+' · retraits '+fmt(pc.ret)+'</div>'
       +(pc.apportRet>0?'<div style="font-size:10px;color:var(--blue2);margin-bottom:4px">↩️ Retraits payés par DepotPlus, entrés au pré-paiement : +'+fmtF(Math.round(pc.apportRet))+'</div>':'')
       +rowsHtml
       +(Math.abs(pc.nonAttrib)>0.5?'<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:11px;border-bottom:1px solid var(--b1)"><span style="color:var(--warn)">⚠️ Mouvements sans compte attribué</span><span style="font-family:\'DM Mono\',monospace;font-weight:700;color:var(--warn)">'+(pc.nonAttrib>0?'+':'−')+fmtF(Math.abs(Math.round(pc.nonAttrib)))+'</span></div>':'')
@@ -1742,14 +1768,12 @@ function renderSaisie() {
         html+='<div style="background:var(--wrd);border:1px solid rgba(255,176,32,0.28);'
             +'border-radius:10px;padding:9px 11px;margin-bottom:10px;font-size:11px;'
             +'line-height:1.5;color:var(--warn)">'
-            +'<b>⚠️ La journée a déjà tourné avant que tu figes.</b><br>'
-            +'<span style="color:var(--t2)">Déjà enregistré aujourd\'hui : '
+            +'<b>▶️ La journée a déjà tourné : le suivi démarrera maintenant.</b><br>'
+            +'<span style="color:var(--t2)">Déjà passé aujourd\'hui : '
             +fmtF(_lv.journee.depots)+' de dépôts et '+fmtF(_lv.journee.retraits)
-            +' de retraits. Tes gains sont comptés depuis minuit, mais ces fonds '
-            +'partent de maintenant : l\'écart d\'aujourd\'hui sera décalé. '
-            +'Fige quand même — c\'est indispensable pour la suite — et lis '
-            +'l\'écart du jour avec cette réserve. Demain, en figeant au réveil, '
-            +'il sera juste.</span></div>';
+            +' de retraits — déjà reflétés dans les soldes que tu saisis. '
+            +'À partir du moment où tu figes, seuls les mouvements suivants '
+            +'compteront dans les gains, le prépaiement estimé et le point du soir.</span></div>';
       }
     } catch(e){}
 
@@ -2026,7 +2050,8 @@ function onInput(id) {
   var prev=document.getElementById('cprev-'+id);
   if (!prev) return;
   if (dep===0&&ret===0) { prev.style.display='none'; return; }
-  var ecartDep=dep, ecartRet=ret;
+  var _bv=baseVolumes();
+  var ecartDep=Math.max(0,dep-_bv.dep), ecartRet=Math.max(0,ret-_bv.ret);
   if (id==='00h'&&S.journee.bilan14) { ecartDep=Math.max(0,dep-S.journee.bilan14.dep); ecartRet=Math.max(0,ret-S.journee.bilan14.ret); }
   var g=calcGains(ecartDep,ecartRet);
   prev.style.display='block';
@@ -2043,7 +2068,8 @@ function onSoldeInput(id) {
   var retEl=document.getElementById('sret-'+id);
   var dep=depEl?(parseFloat(depEl.value)||0):0;
   var ret=retEl?(parseFloat(retEl.value)||0):0;
-  var ecartDep=dep, ecartRet=ret;
+  var _bv=baseVolumes();
+  var ecartDep=Math.max(0,dep-_bv.dep), ecartRet=Math.max(0,ret-_bv.ret);
   if (id==='00h'&&S.journee.bilan14) { ecartDep=Math.max(0,dep-S.journee.bilan14.dep); ecartRet=Math.max(0,ret-S.journee.bilan14.ret); }
   var g=calcGains(ecartDep,ecartRet);
   var fd=getFondsDepart();
@@ -2193,10 +2219,23 @@ function validerMinuit() {
     total+=wVal;
   }
   S.journee.fondsDepart={principal:pVal, wallets:wSoldes, total:total};
+  // Figé en cours de journée : on mémorise les volumes déjà passés pour ne
+  // compter, à partir d'ici, que ce qui vient après (gains, prépaiement, point).
+  var _demarre=false;
+  try {
+    var _lv2=window.PRADEX&&window.PRADEX.live;
+    if (_lv2&&_lv2.journee&&memeJour()&&(Number(_lv2.journee.depots)>0||Number(_lv2.journee.retraits)>0)) {
+      S.journee.fondsDepart.baseDep=Number(_lv2.journee.depots)||0;
+      S.journee.fondsDepart.baseRet=Number(_lv2.journee.retraits)||0;
+      S.journee.fondsDepart.baseTs=Date.now();
+      S.journee.fondsDepart.source='demarrage';
+      _demarre=true;
+    }
+  } catch(e){}
   S.principal.solde=pVal;
   for (var i=0; i<S.wallets.length; i++) S.wallets[i].solde=wSoldes[i].solde;
   saveState(); renderTBar(); renderSaisie(); renderHome();
-  toast('🌙 Fonds figé : '+fmtF(total));
+  toast(_demarre?'▶️ Suivi démarré à '+fmtTime(Date.now())+' — fonds : '+fmtF(total):'🌙 Fonds figé : '+fmtF(total));
 }
 
 // ── SUIVI COMPTE PAR COMPTE ──
@@ -2297,7 +2336,7 @@ function pointComptes(){
      puis virements internes et ajustements attribués. La somme des trois
      retombe exactement sur le solde attendu global. */
   var fd=S.journee.fondsDepart; if(!fd) return null;
-  var gj=gainJour(), dep=Number(gj.volDep)||0, ret=Number(gj.volRet)||0, t=S.taux, today=S.journee.date;
+  var gj=gainJour(), dep=Number(gj.depNet)||0, ret=Number(gj.retNet)||0, t=S.taux, today=S.journee.date, bts=baseVolumes().ts;
   var att={p:Number(fd.principal)||0};
   for(var i=0;i<S.wallets.length;i++){ var fw=fd.wallets&&fd.wallets[i]; att['w'+i]=fw?(Number(fw.solde)||0):0; }
   var wd=walletDefaut('depots'), wr=walletDefaut('retraits'), nonAttrib=0;
@@ -2309,15 +2348,17 @@ function pointComptes(){
   if(retraitsPayesEnCaisse()) att[wr]-=ret*(1+t.fraisOp/100);
   for(var i=0;i<S.rechargements.length;i++){
     var r=S.rechargements[i]; if(r.date!==today) continue;
+    if(bts&&(r.ts||0)<bts) continue;
     att.p+=Number(r.recoit)||0;
     var c=r.compte||wd, sortie=Number(r.debite!=null?r.debite:r.envoye)||0;
     if(c&&att[c]!==undefined) att[c]-=sortie; else nonAttrib-=sortie;
   }
   var virs=[];
-  if(S.virements){ for(var i=0;i<S.virements.length;i++){ var v=S.virements[i]; if(v.date!==today) continue; virs.push(v);
+  if(S.virements){ for(var i=0;i<S.virements.length;i++){ var v=S.virements[i]; if(v.date!==today) continue; if(bts&&(v.ts||0)<bts) continue; virs.push(v);
     if(att[v.from]!==undefined) att[v.from]-=v.montant; if(att[v.to]!==undefined) att[v.to]+=v.montant; } }
   for(var i=0;i<S.journee.ajustements.length;i++){
     var a=S.journee.ajustements[i], s=a.type==='apport'?a.montant:-a.montant;
+    if(bts&&a.ts&&a.ts<bts) continue;
     if(a.compte&&att[a.compte]!==undefined) att[a.compte]+=s; else nonAttrib+=s;
   }
   var sd=(window.PRADEX&&window.PRADEX.soldes)||{}; var hl=window.PRADEX&&window.PRADEX.heureLecture;
@@ -2333,7 +2374,7 @@ function pointComptes(){
     }catch(e){}
     rows.push({code:'w'+i,nom:S.wallets[i].nom,attendu:att['w'+i],reel:val,src:src});
   }
-  return {rows:rows,nonAttrib:nonAttrib,dep:dep,ret:ret,virs:virs,apportRet:apportRetraitsHorsCaisse(ret)};
+  return {rows:rows,nonAttrib:nonAttrib,dep:dep,ret:ret,virs:virs,apportRet:apportRetraitsHorsCaisse(ret),bts:bts};
 }
 function recalerPrepaiement() {
   /* « J'ai lu X sur le site » : on aligne le modèle sur la valeur observée.
@@ -2375,7 +2416,8 @@ function valider(id) {
   var retEl=document.getElementById('sret-'+id);
   var dep=depEl?(parseFloat(depEl.value)||0):0;
   var ret=retEl?(parseFloat(retEl.value)||0):0;
-  var ecartDep=dep, ecartRet=ret;
+  var _bv=baseVolumes();
+  var ecartDep=Math.max(0,dep-_bv.dep), ecartRet=Math.max(0,ret-_bv.ret);
   if (id==='00h'&&S.journee.bilan14) { ecartDep=Math.max(0,dep-S.journee.bilan14.dep); ecartRet=Math.max(0,ret-S.journee.bilan14.ret); }
   var g=calcGains(ecartDep,ecartRet);
   var fd=getFondsDepart();
