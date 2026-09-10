@@ -1841,7 +1841,7 @@ function renderSaisie() {
       var _sd = (window.PRADEX && window.PRADEX.soldes) || {};
       if (memeJour() && (_sd.depots != null || _sd.retraits != null)) {
         html+='<div style="font-size:10px;color:var(--t3);margin:-4px 0 10px 2px;line-height:1.45">'
-            +'✅ Soldes Wave proposés d\'après la lecture des bots'
+            +'ℹ️ Lecture des bots indiquée sous chaque champ — à toi de saisir les soldes'
             +esc(typeof window.PRADEX.heureLecture === 'function'
                    ? window.PRADEX.heureLecture(_sd) : '')
             +'. Corrige-les librement, ta saisie prime toujours.</div>';
@@ -4311,8 +4311,25 @@ setInterval(function(){
       cible['sdep-14h'] = l.bilan14.depots;  cible['sret-14h'] = l.bilan14.retraits;
       cible['sdep-00h'] = l.journee.depots;  cible['sret-00h'] = l.journee.retraits;
     }
+    /* ══ LES SOLDES, C'EST LUI QUI LES SAISIT ══
+       Règle simple demandée : les bots remplissent les VOLUMES (dépôts,
+       retraits) ; le solde du pré-paiement et le solde Wave sont tapés par
+       lui. On n'écrit donc plus rien dans les champs de soldes — on affiche
+       seulement, sous chaque champ, ce que les bots ont lu (ou ce que l'app
+       estime), à titre d'indication. */
     var cs = ciblesSoldes();
-    for (var k in cs) cible[k] = cs[k];
+    for (var k in cs) {
+      var elh = document.getElementById(k); if (!elh) continue;
+      var hid = 'px-hint-' + k, h = document.getElementById(hid);
+      if (!h) {
+        h = document.createElement('div'); h.id = hid;
+        h.style.cssText = 'font-size:10px;color:#8b93a7;margin:-6px 0 8px 2px';
+        elh.insertAdjacentElement('afterend', h);
+      }
+      var txt = (k.indexOf('ssol-p') === 0 ? 'ℹ️ estimé par l\'app : ' : 'ℹ️ lu par les bots : ')
+              + Number(cs[k]).toLocaleString('fr-FR') + ' F — à toi de saisir le vrai solde';
+      if (h.textContent !== txt) h.textContent = txt;   // stable : pas de boucle avec l'observateur
+    }
 
     var n = 0;
     for (var id in cible) {
