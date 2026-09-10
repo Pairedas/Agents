@@ -851,6 +851,10 @@ function loadState() {
       if (!S.credits) S.credits = [];
       if (!S.virements) S.virements = [];
       if (!S.hcFix1) { try { recalcFondsDepartTotal(); } catch(e){} S.hcFix1 = true; saveState(); }
+      if (!S.confFix1) {
+        try { var fdc=S.journee.fondsDepart; if (fdc && fdc.auto && fdc.aConfirmer===undefined && !fdc.baseTs && fdc.source!=='recalage') fdc.aConfirmer=true; } catch(e){}
+        S.confFix1 = true; saveState();
+      }
       // Réparation one-shot : les clôtures faites après minuit ont archivé
       // benefCrypto=0 (bug de date). On rattache les rechargements aux
       // journées par date exacte, puis par date-1 (clôture après minuit).
@@ -920,7 +924,7 @@ function loadState() {
           S.journee = {date:todayStr(),
                        fondsDepart: (_pxReport!==null
                           ? {total:_pxReport, principal:(_pxDetail?_pxDetail.principal:0),
-                             wallets:(_pxDetail?_pxDetail.wallets:[]), auto:true,
+                             wallets:(_pxDetail?_pxDetail.wallets:[]), auto:true, aConfirmer:true,
                              source:'report', sourceDate:_oldDate, ts:Date.now()}
                           : null),
                        ajustements:[], bilan14:null, cloture:null};
@@ -1209,7 +1213,8 @@ function prepaiementMotif() {
 function autoValidationActive() {
   // Réglage explicite, actif par défaut, coupable en un geste depuis les
   // paramètres. Il doit pouvoir reprendre la main sans nous.
-  try { return S.autoJalons !== false; } catch(e){ return false; }
+  // Désactivée par défaut : il vérifie et valide lui-même chaque point.
+  try { return S.autoJalons === true; } catch(e){ return false; }
 }
 
 function autoValiderJalon() {
@@ -1402,11 +1407,11 @@ function renderTBar() {
     var isDone=s.data!==null;
     var cls='tpill active';
     if (isDone) {
-      if (s.id==='minuit') cls='tpill done';
+      if (s.id==='minuit') cls=(s.data.aConfirmer?'tpill tattente':'tpill done');
       else cls=s.data.statut==='surplus'?'tpill twarn':s.data.statut==='manquant'?'tpill tdanger':'tpill done';
     }
     html+='<div class="'+cls+'" onclick="showPage(\'pg-saisie\',null)">'
-        +'<div class="tpill-dot"></div>'+s.icon+' '+s.lbl+(isDone?' ✓':'')+'</div>';
+        +'<div class="tpill-dot"></div>'+s.icon+' '+s.lbl+(isDone?(s.id==='minuit'&&s.data.aConfirmer?' ⏳':' ✓'):'')+'</div>';
   }
   var el=document.getElementById('tBar'); if(el) el.innerHTML=html;
 }
@@ -1451,6 +1456,15 @@ function renderHome() {
         +'<div style="flex:1"><div style="font-size:12px;font-weight:700;color:var(--warn)">Pense à sauvegarder tes données</div>'
         +'<div style="font-size:10px;color:var(--t3);margin-top:2px">'+(S.lastBackupTs?'Dernière sauvegarde : '+fmtDate(S.lastBackupTs):'Aucune sauvegarde JSON effectuée')+'</div></div>'
         +'<button class="btn-sm btn-gold" onclick="openModal(\'modalSave\')">Sauvegarder</button></div>';
+  }
+
+  // ── POINT DE MINUIT À CONFIRMER ──
+  if (S.journee.fondsDepart && S.journee.fondsDepart.aConfirmer) {
+    html+='<div class="card" style="border:1px solid rgba(255,176,32,0.4);background:linear-gradient(135deg,rgba(255,176,32,0.08),transparent)">'
+        +'<div style="font-size:12px;font-weight:700;color:var(--warn)">⏳ Point de minuit à confirmer</div>'
+        +'<div style="font-size:11px;color:var(--t2);margin-top:4px;line-height:1.5">Fonds proposé : <b>'+fmtF(S.journee.fondsDepart.total)+'</b>. Vérifie sur le site et Wave, puis confirme ou corrige. Les jalons restent fermés en attendant.</div>'
+        +'<div style="display:flex;gap:8px;margin-top:10px"><button class="btn-sm btn-gold" style="flex:1" onclick="confirmerFonds()">✅ Confirmer</button><button class="btn-sm btn-ghost" style="flex:1" onclick="corrigerFonds()">✏️ Corriger</button></div>'
+        +'</div>';
   }
 
   // ── FONDS CARD ──
@@ -1712,7 +1726,7 @@ function renderSaisie() {
       +'<div class="step-header">'
       +'<div class="step-icon step-icon-minuit"><span class="step-emoji">🌙</span><span class="step-heure step-heure-minuit">00:00</span></div>'
       +'<div class="step-info"><div class="step-nom">Soldes à minuit</div><div class="step-desc">Fonds de départ — figé pour toute la journée</div></div>'
-      +(S.journee.fondsDepart?'<span class="badge badge-ok">✓ Fait</span>':'')
+      +(S.journee.fondsDepart?(S.journee.fondsDepart.aConfirmer?'<span class="badge badge-surplus">⏳ À confirmer</span>':'<span class="badge badge-ok">✓ Fait</span>'):'')
       +'</div>';
 
   if (S.journee.fondsDepart) {
@@ -1750,7 +1764,10 @@ function renderSaisie() {
           :fd.source==='recalage'?'Recalé sur le site'
           :'Saisi au point de minuit')+'</div>'
         +'</div>'
-        +'<button class="btn-sm btn-ghost" style="margin-top:10px;width:100%" onclick="redemarrerSuivi()">▶️ Redémarrer le suivi maintenant avec les soldes réels</button>'
+        +(fd.aConfirmer
+          ?'<div style="margin-top:10px;padding:10px 12px;background:var(--wrd);border:1px solid rgba(255,176,32,0.3);border-radius:10px;font-size:11px;color:var(--t2);line-height:1.5"><b style="color:var(--warn)">⏳ Fonds proposé automatiquement — à vérifier.</b><br>Compare avec le site et Wave. Tant que tu n\'as pas confirmé, les jalons 14H et clôture restent fermés.</div>'
+           +'<div style="display:flex;gap:8px;margin-top:10px"><button class="btn-primary btn-green" style="flex:1" onclick="confirmerFonds()">✅ Confirmer</button><button class="btn-primary" style="flex:1;background:var(--s2)!important;color:var(--text)!important;box-shadow:none!important" onclick="corrigerFonds()">✏️ Corriger</button></div>'
+          :'<button class="btn-sm btn-ghost" style="margin-top:10px;width:100%" onclick="redemarrerSuivi()">▶️ Redémarrer le suivi maintenant avec les soldes réels</button>')
         +'</div>';
   } else {
     html+='<div class="step-body">'
@@ -1794,8 +1811,11 @@ function renderSaisie() {
        propose, il confirme ou corrige. */
     var _prop=null, _propSrc='';
     try {
-      var _la=S.journeesArchivees[0];
-      if (_la && _la.cloture && _la.cloture.prepaiement!=null) { _prop=_la.cloture.prepaiement; _propSrc='clôture du '+_la.dateShort; }
+      if (S.journee.propose && S.journee.propose.principal!=null) { _prop=S.journee.propose.principal; _propSrc='valeur proposée (à corriger si besoin)'; }
+      else {
+        var _la=S.journeesArchivees[0];
+        if (_la && _la.cloture && _la.cloture.prepaiement!=null) { _prop=_la.cloture.prepaiement; _propSrc='clôture du '+_la.dateShort; }
+      }
     } catch(e){}
     html+='<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-p">Pré-paiement</span>'+S.principal.nom+'</div>'
         +'<input class="sol-inp" type="number" id="minuit-p" placeholder="À lire sur le site..." inputmode="numeric"'+(_prop!==null?' value="'+_prop+'"':'')+'></div>'
@@ -1810,8 +1830,9 @@ function renderSaisie() {
 
     for (var i=0; i<S.wallets.length; i++) {
       if (estHorsCaisse(S.wallets[i])) continue;   // compte DepotPlus : pas dans cette caisse
+      var _pw=(S.journee.propose&&S.journee.propose.wallets&&S.journee.propose.wallets[i])?S.journee.propose.wallets[i].solde:null;
       html+='<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-w">Wave</span>'+S.wallets[i].nom+'</div>'
-          +'<input class="sol-inp" type="number" id="minuit-w-'+i+'" placeholder="Solde actuel..." inputmode="numeric"></div>';
+          +'<input class="sol-inp" type="number" id="minuit-w-'+i+'" placeholder="Solde actuel..." inputmode="numeric"'+(_pw!==null?' value="'+_pw+'"':'')+'></div>';
     }
     /* Les deux soldes Wave, eux, sont lus par les bots : on dit d'où ils
        viennent et quand, pour qu'il puisse corriger en connaissance de cause
@@ -1832,7 +1853,7 @@ function renderSaisie() {
   html+='</div>';
 
   // AJUSTEMENT
-  if (S.journee.fondsDepart) {
+  if (fondsConfirme()) {
     html+='<div class="step-card">'
         +'<div class="step-header" style="cursor:pointer" onclick="openModal(\'modalAjustement\')">'
         +'<div class="step-icon step-icon-adj"><span class="step-emoji">💱</span></div>'
@@ -1842,8 +1863,12 @@ function renderSaisie() {
         +'</div></div>';
   }
 
+  if (S.journee.fondsDepart && S.journee.fondsDepart.aConfirmer) {
+    html+='<div class="step-card" style="opacity:.75"><div class="step-header"><div class="step-num" style="background:var(--s2)">🔒</div>'
+        +'<div class="step-info"><div class="step-nom">Bilan 14H et clôture verrouillés</div><div class="step-desc">Confirme ou corrige d\'abord le point de minuit ci-dessus.</div></div></div></div>';
+  }
   // ÉTAPE 2 : 14H
-  if (S.journee.fondsDepart) {
+  if (fondsConfirme()) {
     html+='<div class="step-card">'
         +'<div class="step-header">'
         +'<div class="step-icon step-icon-14"><span class="step-emoji">☀️</span><span class="step-heure step-heure-14">14:00</span></div>'
@@ -2153,12 +2178,12 @@ function jalonEnAttente(id) {
   try {
     if (id === '14h') {
       if (S.journee.bilan14) return false;          // déjà validé
-      if (!S.journee.fondsDepart) return false;     // minuit pas encore figé
+      if (!fondsConfirme()) return false;           // minuit pas encore figé/confirmé
       return new Date().getHours() >= 14;
     }
     if (id === '00h') {
       if (S.journee.cloture) return false;
-      if (!S.journee.fondsDepart) return false;
+      if (!fondsConfirme()) return false;
       /* En attente si la journée en cours n'est pas celle d'aujourd'hui —
          donc une journée passée jamais clôturée — ou en fin de soirée. */
       return S.journee.date !== todayStr() || new Date().getHours() >= 23;
@@ -2217,6 +2242,30 @@ function restaurerSoldeAuto(idx) {
   majFondDepart('w', idx, au);
 }
 
+/* ══ LE POINT DE MINUIT SE CONFIRME, IL NE SE VALIDE PLUS TOUT SEUL ══
+   Un fonds reporté automatiquement (clôture de la veille, changement de
+   jour) n'est qu'une PROPOSITION. Tant qu'il n'est pas confirmé, les jalons
+   14H et clôture restent fermés : rien ne se calcule sur un chiffre qu'il
+   n'a pas vu. */
+function fondsConfirme() {
+  return !!(S.journee.fondsDepart && !S.journee.fondsDepart.aConfirmer);
+}
+function confirmerFonds() {
+  var fd=S.journee.fondsDepart; if(!fd) return;
+  fd.aConfirmer=false; fd.confirmeTs=Date.now();
+  saveState(); renderTBar(); renderSaisie(); renderHome();
+  toast('✅ Point de minuit confirmé : '+fmtF(fd.total));
+}
+function corrigerFonds() {
+  var fd=S.journee.fondsDepart; if(!fd) return;
+  // On garde les valeurs proposées pour pré-remplir l'écran de saisie
+  S.journee.propose={principal:fd.principal, wallets:fd.wallets};
+  S.journee.fondsDepart=null;
+  S.journee.restart=true;
+  saveState(); renderTBar(); renderSaisie(); renderHome();
+  showPage('pg-saisie',null);
+  toast('✏️ Corrige les soldes puis « Figer »');
+}
 function redemarrerSuivi() {
   /* Le fonds de départ affiché est faux (report automatique d'une vieille
      journée, graine jamais vérifiée…) : on repart des soldes réels lus
@@ -2248,6 +2297,7 @@ function validerMinuit() {
     total+=wVal;
   }
   S.journee.fondsDepart={principal:pVal, wallets:wSoldes, total:total};
+  delete S.journee.propose;
   // Figé en cours de journée : on mémorise les volumes déjà passés pour ne
   // compter, à partir d'ici, que ce qui vient après (gains, prépaiement, point).
   var _demarre=false;
@@ -2443,6 +2493,7 @@ function corrigerBilan14() {
   toast('✏️ Bilan 14H réinitialisé — ressaisis les valeurs');
 }
 function valider(id) {
+  if (!fondsConfirme()) { toast('❌ Confirme d\'abord le point de minuit'); return; }
   var depEl=document.getElementById('sdep-'+id);
   var retEl=document.getElementById('sret-'+id);
   var dep=depEl?(parseFloat(depEl.value)||0):0;
@@ -2519,7 +2570,7 @@ function valider(id) {
     var seed=null;
     if (allFilled) {
       var sw=[]; for(var i=0;i<S.wallets.length;i++) sw.push({nom:S.wallets[i].nom, solde:estHorsCaisse(S.wallets[i])?(Number(S.wallets[i].solde)||0):wVals[i]});
-      seed={principal:Math.round(pVal), wallets:sw, total:Math.round(totalReel), auto:true, source:'cloture', sourceDate:S.journee.date, ts:Date.now()};
+      seed={principal:Math.round(pVal), wallets:sw, total:Math.round(totalReel), auto:true, aConfirmer:true, source:'cloture', sourceDate:S.journee.date, ts:Date.now()};
     }
     S.journee={date:todayStr(), fondsDepart:seed, ajustements:[], bilan14:null, cloture:null};
     saveState(); renderTBar(); renderSaisie(); renderHome(); renderHist();
@@ -3496,7 +3547,8 @@ function renderCfg() {
     +'soldes Wave lus depuis moins de 45 minutes, et ton pré-paiement calculé — '
     +'le point de 14 h se valide seul. La clôture ne part que sur une journée '
     +'déjà écoulée, jamais sur la journée en cours. '
-    +'S\'il manque quoi que ce soit, rien n\'est validé et tu gardes la main.'
+    +'S\'il manque quoi que ce soit, rien n\'est validé et tu gardes la main. '
+    +'<b>Désactivée par défaut</b> : tu vérifies et valides chaque point toi-même.'
     +'</div>'
     +'<button class="btn-primary" style="background:'+(autoValidationActive()?'var(--green2)':'var(--s2)')+'" onclick="toggleAutoJalons()">'
     +(autoValidationActive()?'✅ Activée — cliquer pour désactiver':'⏸️ Désactivée — cliquer pour activer')+'</button>'
