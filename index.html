@@ -1899,13 +1899,17 @@ function renderSaisie() {
   }
 
   // ÉTAPE 3 : CLÔTURE 00H
-  if (S.journee.bilan14) {
+  /* La clôture ne dépend plus du Bilan 14H : si le 14H n'est pas applicable
+     (suivi démarré après 14h) ou a été sauté, la clôture couvre toute la
+     période depuis le démarrage — sinon la journée ne pouvait plus se fermer. */
+  if (fondsConfirme()) {
     html+='<div class="step-card">'
         +'<div class="step-header">'
         +'<div class="step-icon step-icon-00"><span class="step-emoji">🌙</span><span class="step-heure step-heure-00">00:00</span></div>'
         +'<div class="step-info"><div class="step-nom">Clôture 00H</div><div class="step-desc">Statut final journée 00H→00H</div></div>'
         +(S.journee.cloture?'<span class="badge badge-ok">✓ Clôturé</span>':'')
-        +'</div>';
+        +'</div>'
+        +((!S.journee.bilan14&&!S.journee.cloture&&!bilan14NonApplicable())?'<div style="margin:0 14px 8px;padding:8px 12px;background:var(--wrd);border:1px solid rgba(255,176,32,0.25);border-radius:10px;font-size:11px;color:var(--t2)">ℹ️ Bilan 14H non fait : la clôture couvrira toute la journée d\'un coup.</div>':'');
     if (S.journee.cloture) {
       var bc=S.journee.cloture;
       var gj2=gainJour();
