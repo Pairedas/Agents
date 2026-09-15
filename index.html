@@ -577,6 +577,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
     </div>
     <div class="fgrp"><label class="flbl">Montant (FCFA)</label><input class="finp" type="number" id="adjMontant" placeholder="ex: 200 000" inputmode="numeric"></div>
     <div class="fgrp"><label class="flbl">Motif</label><input class="finp" type="text" id="adjMotif" placeholder="ex: Retrait patron, Apport capital..."></div>
+    <div class="fgrp"><label class="flbl">Compte concerné</label><select class="finp fsel" id="adjCompte"></select></div>
     <button class="btn-primary" onclick="saveAjustement()">💾 Enregistrer</button>
   </div>
 </div>
@@ -592,17 +593,31 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
         <button class="type-btn" id="rechBtnInter" onclick="setRechType('international')">🌍 Inter (net 0.5%)</button>
       </div>
     </div>
-    <div class="fgrp"><label class="flbl">Montant envoyé via Wave (FCFA)</label><input class="finp" type="number" id="rechEnvoye" placeholder="ex: 500 000" inputmode="numeric" oninput="calcRech()"></div>
-    <div class="fgrp"><label class="flbl">Valeur crypto vendue (FCFA)</label><input class="finp" type="number" id="rechCrypto" placeholder="ex: 509 000" inputmode="numeric" oninput="calcRech()"></div>
+    <div class="fgrp"><label class="flbl">Sorti de quel compte Wave ?</label><select class="finp fsel" id="rechCompte"></select></div>
+    <div class="fgrp"><label class="flbl">Sorti de Wave — total débité (FCFA)</label><input class="finp" type="number" id="rechEnvoye" placeholder="ex: 500 000" inputmode="numeric" oninput="calcRech()"></div>
+    <div class="fgrp"><label class="flbl">Crédité sur le pré-paiement — montant exact du site (FCFA)</label><input class="finp" type="number" id="rechCrypto" placeholder="ex: 496 000" inputmode="numeric" oninput="calcRech()"></div>
     <div id="rechPreview" style="display:none;background:var(--bg2);border:1px solid var(--b2);border-radius:var(--r12);padding:14px;margin-bottom:12px">
-      <div class="ir"><span class="il" id="rechFraisLbl">Frais Wave (1%)</span><span class="iv c-warn" id="rechFrais">—</span></div>
-      <div class="ir" id="rechCashbackRow" style="display:none"><span class="il" style="color:var(--green2)">💚 Cashback Wave (1%)</span><span class="iv c-green" id="rechCashback">—</span></div>
       <div class="ir"><span class="il">Pré-paiement reçoit</span><span class="iv c-blue" id="rechRecoit">—</span></div>
+      <div class="ir"><span class="il" id="rechFraisLbl">Frais Wave théoriques (info)</span><span class="iv" id="rechFrais" style="color:var(--t3)">—</span></div>
       <div style="height:1px;background:var(--b2);margin:8px 0"></div>
-      <div class="ir"><span class="il" style="font-weight:700">Bénéfice / Perte crypto</span><span class="iv" id="rechBenef" style="font-size:15px">—</span></div>
+      <div class="ir"><span class="il" style="font-weight:700">Coût / gain de la recharge</span><span class="iv" id="rechBenef" style="font-size:15px">—</span></div>
+      <div style="font-size:10px;color:var(--t3);margin-top:6px">Coût = sorti − crédité. Frais Wave et écart de change sont déjà dedans : rien n'est soustrait en plus.</div>
     </div>
     <div class="fgrp"><label class="flbl">Note (optionnel)</label><input class="finp" type="text" id="rechNote" placeholder="ex: USDT Binance..."></div>
     <button class="btn-primary" onclick="saveRech()">💾 Enregistrer</button>
+  </div>
+</div>
+
+<div class="modal-ov" id="modalVirement" onclick="modalOvClick(event,'modalVirement')">
+  <div class="modal-box">
+    <div class="modal-handle"></div>
+    <div class="modal-title">↔️ Virement interne<button class="modal-close" onclick="closeModal('modalVirement')">✕</button></div>
+    <p style="font-size:11px;color:var(--t2);margin-bottom:14px">Argent déplacé entre tes propres comptes Wave (ex. Wave retrait → Wave dépôt). Le total de la caisse ne change pas : seul le suivi compte par compte bouge.</p>
+    <div class="fgrp"><label class="flbl">Depuis</label><select class="finp fsel" id="virFrom"></select></div>
+    <div class="fgrp"><label class="flbl">Vers</label><select class="finp fsel" id="virTo"></select></div>
+    <div class="fgrp"><label class="flbl">Montant (FCFA)</label><input class="finp" type="number" id="virMontant" placeholder="ex: 300 000" inputmode="numeric"></div>
+    <div class="fgrp"><label class="flbl">Note (optionnel)</label><input class="finp" type="text" id="virNote" placeholder="ex: Réalimentation dépôt"></div>
+    <button class="btn-primary" onclick="saveVirement()">💾 Enregistrer</button>
   </div>
 </div>
 
@@ -702,6 +717,7 @@ body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;fon
     </div>
     <div class="fgrp"><label class="flbl">Motif</label><input class="finp" type="text" id="ppMotif" placeholder="ex: Courses, Transfert famille..."></div>
     <div class="fgrp"><label class="flbl">Montant (FCFA)</label><input class="finp" type="number" id="ppMontant" placeholder="ex: 15 000" inputmode="numeric"></div>
+    <div class="fgrp"><label class="flbl">Pris sur quel compte ?</label><select class="finp fsel" id="ppCompte"></select></div>
     <button class="btn-primary" style="background:linear-gradient(135deg,var(--red),#900)!important;box-shadow:0 4px 16px rgba(255,77,109,0.2)!important" onclick="savePrisePerso()">💸 Enregistrer la prise</button>
   </div>
 </div>
@@ -812,7 +828,7 @@ function defaultState() {
     principal:{nom:'Pré-paiement', solde:0},
     wallets:[], objectif:0, objectifMois:0, lastBackupTs:0,
     taux:{commDep:5, commRet:2, fraisOp:1, rechNat:1, rechInter:0.5},
-    seuilCapital:0, credits:[],
+    seuilCapital:0, credits:[], virements:[],
     journee:{date:todayStr(), fondsDepart:null, ajustements:[], bilan14:null, cloture:null},
     journeesArchivees:[], surplusHist:[], depenses:[], rechargements:[],
     prisesPerso:[], histPeriod:'semaine', apiKey:''
@@ -833,6 +849,12 @@ function loadState() {
       if (!S.taux) S.taux = {commDep:5, commRet:2, fraisOp:1, rechNat:1, rechInter:0.5};
       if (!S.seuilCapital) S.seuilCapital = 0;
       if (!S.credits) S.credits = [];
+      if (!S.virements) S.virements = [];
+      if (!S.hcFix1) { try { recalcFondsDepartTotal(); } catch(e){} S.hcFix1 = true; saveState(); }
+      if (!S.confFix1) {
+        try { var fdc=S.journee.fondsDepart; if (fdc && fdc.auto && fdc.aConfirmer===undefined && !fdc.baseTs && fdc.source!=='recalage') fdc.aConfirmer=true; } catch(e){}
+        S.confFix1 = true; saveState();
+      }
       // Réparation one-shot : les clôtures faites après minuit ont archivé
       // benefCrypto=0 (bug de date). On rattache les rechargements aux
       // journées par date exacte, puis par date-1 (clôture après minuit).
@@ -892,7 +914,7 @@ function loadState() {
              par TA fonction soldeAttenduJour(). Amorcé une fois par
              « Point de minuit », tu ne le retapes plus jamais.
              validerMinuit() reste disponible pour te recaler quand tu veux. */
-          var _pxReport = null, _pxDetail = null;
+          var _pxReport = null, _pxDetail = null, _oldDate = S.journee.date;
           if (S.journee.fondsDepart) {
             _pxReport = soldeAttenduJour();
             _pxDetail = {principal: S.principal.solde,
@@ -902,7 +924,8 @@ function loadState() {
           S.journee = {date:todayStr(),
                        fondsDepart: (_pxReport!==null
                           ? {total:_pxReport, principal:(_pxDetail?_pxDetail.principal:0),
-                             wallets:(_pxDetail?_pxDetail.wallets:[]), auto:true}
+                             wallets:(_pxDetail?_pxDetail.wallets:[]), auto:true, aConfirmer:true,
+                             source:'report', sourceDate:_oldDate, ts:Date.now()}
                           : null),
                        ajustements:[], bilan14:null, cloture:null};
           saveState();
@@ -965,7 +988,7 @@ function calcGains(dep, ret) {
 }
 function totalRoulement() {
   var t = S.principal.solde;
-  for (var i=0; i<S.wallets.length; i++) t += S.wallets[i].solde;
+  for (var i=0; i<S.wallets.length; i++) { if (!estHorsCaisse(S.wallets[i])) t += S.wallets[i].solde; }
   return t;
 }
 
@@ -999,6 +1022,7 @@ function caisseFraiche() {
 
     var t = Number(pp), det = [{nom: S.principal.nom, solde: Number(pp)}];
     for (var i = 0; i < S.wallets.length; i++) {
+      if (estHorsCaisse(S.wallets[i])) continue;
       var c = cw(S.wallets[i].nom);
       var v = (c === 'depots') ? sd.depots : (c === 'retraits') ? sd.retraits : null;
       if (v === null || v === undefined) {
@@ -1012,15 +1036,27 @@ function caisseFraiche() {
 function getFondsDepart() {
   if (!S.journee.fondsDepart) return 0;
   var base = S.journee.fondsDepart.total;
+  var _bts = Number(S.journee.fondsDepart.baseTs)||0;
   for (var i=0; i<S.journee.ajustements.length; i++) {
     var a = S.journee.ajustements[i];
+    if (_bts && a.ts && a.ts < _bts) continue;   // antérieur au démarrage du suivi
     if (a.type === 'apport') base += a.montant;
     else base -= a.montant;
   }
   return base;
 }
+/* ══ DÉMARRER LE SUIVI EN COURS DE JOURNÉE ══
+   Si les fonds sont figés à 15h37, les gains, le prépaiement estimé et le
+   point du soir ne doivent compter que ce qui se passe APRÈS 15h37. On
+   mémorise les volumes déjà passés (baseDep/baseRet) et l'heure (baseTs) ;
+   tout ce qui précède est considéré comme déjà reflété dans les soldes lus. */
+function baseVolumes() {
+  var fd=S.journee&&S.journee.fondsDepart;
+  return {dep:(fd&&Number(fd.baseDep))||0, ret:(fd&&Number(fd.baseRet))||0, ts:(fd&&Number(fd.baseTs))||0};
+}
 function gainJour() {
   var gn=0, gb=0, f=0;
+  var _bv=baseVolumes();
   /* ══ PRADEX 2/4 — capital à jour sans clôture ══
      Avant : gainJour() valait 0 tant qu'aucun bilan n'était enregistré,
      donc ton capital n'était juste qu'après un geste de saisie.
@@ -1031,9 +1067,10 @@ function gainJour() {
       && window.PRADEX && window.PRADEX.live
       && (window.PRADEX.live.depots || window.PRADEX.live.retraits)) {
     var _pxd = window.PRADEX.live.depots||0, _pxr = window.PRADEX.live.retraits||0;
-    var _pxg = calcGains(_pxd, _pxr);
+    var _dn = Math.max(0,_pxd-_bv.dep), _rn = Math.max(0,_pxr-_bv.ret);
+    var _pxg = calcGains(_dn, _rn);
     return {gainNet:_pxg.gainNet, gainBrut:_pxg.gainBrut, frais:_pxg.frais,
-            volDep:_pxd, volRet:_pxr, auto:true};
+            volDep:_pxd, volRet:_pxr, depNet:_dn, retNet:_rn, auto:true};
   }
   if (S.journee.bilan14) { gn+=S.journee.bilan14.gainNet; gb+=S.journee.bilan14.gainBrut; f+=S.journee.bilan14.frais; }
   if (S.journee.cloture) { gn+=S.journee.cloture.gainNet; gb+=S.journee.cloture.gainBrut; f+=S.journee.cloture.frais; }
@@ -1055,13 +1092,14 @@ function gainJour() {
   var vd=0, vr=0;
   if (S.journee.bilan14) { vd=S.journee.bilan14.dep; vr=S.journee.bilan14.ret; }
   if (S.journee.cloture) { vd=S.journee.cloture.dep; vr=S.journee.cloture.ret; }
-  return {gainNet:gn, gainBrut:gb, frais:f, volDep:vd, volRet:vr};
+  return {gainNet:gn, gainBrut:gb, frais:f, volDep:vd, volRet:vr, depNet:Math.max(0,vd-_bv.dep), retNet:Math.max(0,vr-_bv.ret)};
 }
 function benefCryptoJour() {
   // Date de la JOURNÉE en cours (pas l'horloge) : une clôture après minuit
   // doit compter les rechargements de la journée qu'on est en train de fermer
-  var today = S.journee.date, b=0;
+  var today = S.journee.date, b=0, _bts=baseVolumes().ts;
   for (var i=0; i<S.rechargements.length; i++) {
+    if (_bts && (S.rechargements[i].ts||0) < _bts) continue;   // antérieur au démarrage
     if (S.rechargements[i].date === today) b += S.rechargements[i].benef;
   }
   return b;
@@ -1071,9 +1109,10 @@ function rechargesJour() {
   // Les deux diffèrent des frais Wave et de l'écart de change : le 19/08,
   // 630 000 envoyés pour 624 057 crédités. C'est `recoit` qu'il faut, et
   // c'est bien la valeur crypto reçue que saveRech() y range.
-  var today = S.journee.date, r = 0;
+  var today = S.journee.date, r = 0, _bts=baseVolumes().ts;
   try {
     for (var i=0; i<S.rechargements.length; i++) {
+      if (_bts && (S.rechargements[i].ts||0) < _bts) continue;   // antérieur au démarrage
       if (S.rechargements[i].date === today) r += (S.rechargements[i].recoit || 0);
     }
   } catch(e){}
@@ -1101,6 +1140,16 @@ function prepaiementCalcule() {
      Renvoie null dès qu'un terme manque. Un prépaiement faux vaut moins que
      pas de prépaiement : c'est le chiffre le plus lourd de sa caisse. */
   try {
+    /* Suivi démarré en cours de journée : la variation du Mac couvre toute la
+       journée, y compris ce qui précède le démarrage — déjà dans le solde lu.
+       On calcule donc la variation localement, depuis le démarrage seulement. */
+    var fd0 = S.journee && S.journee.fondsDepart;
+    if (fd0 && fd0.baseTs) {
+      if (fd0.principal === undefined || fd0.principal === null) return null;
+      var gj0 = gainJour(), t0 = S.taux;
+      var v0 = -(Number(gj0.depNet)||0)*(1-t0.commDep/100) + (Number(gj0.retNet)||0)*(1+t0.commRet/100);
+      return Math.round(Number(fd0.principal) + rechargesJour() + v0);
+    }
     var p = window.PRADEX && window.PRADEX.prepaiement;
     if (!p || !p.calculable) return null;
     var v = Number(p.variation);
@@ -1164,7 +1213,8 @@ function prepaiementMotif() {
 function autoValidationActive() {
   // Réglage explicite, actif par défaut, coupable en un geste depuis les
   // paramètres. Il doit pouvoir reprendre la main sans nous.
-  try { return S.autoJalons !== false; } catch(e){ return false; }
+  // Désactivée par défaut : il vérifie et valide lui-même chaque point.
+  try { return S.autoJalons === true; } catch(e){ return false; }
 }
 
 function autoValiderJalon() {
@@ -1187,8 +1237,9 @@ function autoValiderJalon() {
        heures produirait un faux « manquant » qu'il verrait comme une alerte
        de caisse, alors que ce ne serait qu'un chiffre périmé. */
     var sd = window.PRADEX && window.PRADEX.soldes;
-    if (!sd || sd.depots == null || sd.retraits == null) return null;
-    var ages = [sd.depots_lu_le, sd.retraits_lu_le];
+    var besoinRet = retraitsPayesEnCaisse();
+    if (!sd || sd.depots == null || (besoinRet && sd.retraits == null)) return null;
+    var ages = besoinRet ? [sd.depots_lu_le, sd.retraits_lu_le] : [sd.depots_lu_le];
     for (var a=0; a<ages.length; a++) {
       if (!ages[a]) return null;
       var t = new Date(ages[a]).getTime();
@@ -1212,6 +1263,7 @@ function autoValiderJalon() {
     var pEl = document.getElementById('ssol-p-'+id);
     if (!pEl || isNaN(parseFloat(pEl.value))) return null;
     for (var i=0; i<S.wallets.length; i++) {
+      if (estHorsCaisse(S.wallets[i])) continue;
       var w = document.getElementById('ssol-w-'+id+'-'+i);
       if (!w || isNaN(parseFloat(w.value))) return null;
     }
@@ -1231,7 +1283,8 @@ function autoValiderJalon() {
 }
 
 function soldeAttenduJour() {
-  return getFondsDepart() + gainJour().gainNet + benefCryptoJour();
+  var gj=gainJour();
+  return getFondsDepart() + gj.gainNet + benefCryptoJour() + apportRetraitsHorsCaisse(gj.retNet);
 }
 function getStartOf(period) {
   var now = new Date();
@@ -1323,6 +1376,7 @@ function openModal(id) {
   }
   if (id==='modalAjustement') setAdjType('apport');
   if (id==='modalPrisePerso') setPPSource('capital');
+  if (id==='modalAjustement'||id==='modalPrisePerso'||id==='modalRech'||id==='modalVirement') remplirSelectsComptes();
   if (id==='modalCredit') { setCreditType('pret'); setCreditCaisse(true); }
   if (id==='modalSave') {
     var si=document.getElementById('saveInfo');
@@ -1353,11 +1407,11 @@ function renderTBar() {
     var isDone=s.data!==null;
     var cls='tpill active';
     if (isDone) {
-      if (s.id==='minuit') cls='tpill done';
+      if (s.id==='minuit') cls=(s.data.aConfirmer?'tpill tattente':'tpill done');
       else cls=s.data.statut==='surplus'?'tpill twarn':s.data.statut==='manquant'?'tpill tdanger':'tpill done';
     }
     html+='<div class="'+cls+'" onclick="showPage(\'pg-saisie\',null)">'
-        +'<div class="tpill-dot"></div>'+s.icon+' '+s.lbl+(isDone?' ✓':'')+'</div>';
+        +'<div class="tpill-dot"></div>'+s.icon+' '+s.lbl+(isDone?(s.id==='minuit'&&s.data.aConfirmer?' ⏳':' ✓'):(s.id==='14h'&&bilan14NonApplicable()?' ⏭️':''))+'</div>';
   }
   var el=document.getElementById('tBar'); if(el) el.innerHTML=html;
 }
@@ -1373,7 +1427,8 @@ function renderHome() {
   var fd=getFondsDepart();
   var bCrypto=benefCryptoJour();
   var benefNetReel=gj.gainNet+bCrypto;
-  var soldeAtt=fd+gj.gainNet+bCrypto;
+  var apRet=apportRetraitsHorsCaisse(gj.retNet);
+  var soldeAtt=fd+gj.gainNet+bCrypto+apRet;
   var benefColor=benefNetReel>=0?'var(--green2)':'var(--red2)';
   var html='';
 
@@ -1403,6 +1458,15 @@ function renderHome() {
         +'<button class="btn-sm btn-gold" onclick="openModal(\'modalSave\')">Sauvegarder</button></div>';
   }
 
+  // ── POINT DE MINUIT À CONFIRMER ──
+  if (S.journee.fondsDepart && S.journee.fondsDepart.aConfirmer) {
+    html+='<div class="card" style="border:1px solid rgba(255,176,32,0.4);background:linear-gradient(135deg,rgba(255,176,32,0.08),transparent)">'
+        +'<div style="font-size:12px;font-weight:700;color:var(--warn)">⏳ Point de minuit à confirmer</div>'
+        +'<div style="font-size:11px;color:var(--t2);margin-top:4px;line-height:1.5">Fonds proposé : <b>'+fmtF(S.journee.fondsDepart.total)+'</b>. Vérifie sur le site et Wave, puis confirme ou corrige. Les jalons restent fermés en attendant.</div>'
+        +'<div style="display:flex;gap:8px;margin-top:10px"><button class="btn-sm btn-gold" style="flex:1" onclick="confirmerFonds()">✅ Confirmer</button><button class="btn-sm btn-ghost" style="flex:1" onclick="corrigerFonds()">✏️ Corriger</button></div>'
+        +'</div>';
+  }
+
   // ── FONDS CARD ──
   html+='<div class="fonds-card">'
       +'<div class="fonds-lbl">📊 Fonds de départ (figé) · '+S.journee.date+'</div>'
@@ -1410,6 +1474,7 @@ function renderHome() {
       +'<div class="fonds-chips" id="fondsChips"></div>'
       +'<div class="fonds-btns">'
       +(S.journee.fondsDepart?'<button class="btn-sm btn-ghost" onclick="openModal(\'modalAjustement\')">💱 Ajustement</button>':'')
+      +(S.journee.fondsDepart&&S.wallets.length>=2?'<button class="btn-sm btn-ghost" onclick="openModal(\'modalVirement\')">↔️ Virement</button>':'')
       +'<button class="btn-sm btn-ghost" onclick="openModal(\'modalObjectif\')">🎯 Objectif</button>'
       +'<button class="btn-sm" style="background:var(--rrd);color:var(--red2);border:1px solid rgba(255,77,109,0.25)" onclick="openModal(\'modalPrisePerso\')">👤 Prise perso</button>'
       +'</div></div>';
@@ -1418,8 +1483,78 @@ function renderHome() {
   if (S.journee.fondsDepart) {
     html+='<div class="solde-attendu-card">'
         +'<div><div class="sa-lbl">💡 Solde attendu actuellement</div>'
-        +'<div style="font-size:10px;color:var(--t3);margin-top:2px">Fonds + gains Wave + crypto</div></div>'
+        +'<div style="font-size:10px;color:var(--t3);margin-top:2px">Fonds + gains Wave + crypto'+(apRet>0?' + retraits payés par DepotPlus '+fmt(apRet):'')+'</div></div>'
         +'<div class="sa-val">'+fmtF(soldeAtt)+'</div></div>';
+  }
+
+  // ── PRÉ-PAIEMENT ESTIMÉ (semi-auto) ──
+  /* Le prépaiement n'est lisible nulle part par les bots : l'app l'estime
+     (graine + recharges + activité du Mac) et il le vérifie sur le site
+     quand il veut. Un geste recale le modèle et trace l'écart constaté. */
+  if (S.journee.fondsDepart) {
+    var _fdp=S.journee.fondsDepart;
+    var _pp=(typeof prepaiementCalcule==='function')?prepaiementCalcule():null;
+    var _rj=(typeof rechargesJour==='function')?rechargesJour():0;
+    var _pxo=window.PRADEX||{};
+    var _var=(_pxo.prepaiement&&_pxo.prepaiement.calculable&&isFinite(Number(_pxo.prepaiement.variation)))?Number(_pxo.prepaiement.variation):null;
+    var _src=_fdp.source==='cloture'?'reportée de la clôture du '+(_fdp.sourceDate||'')
+            :_fdp.source==='report'?'reportée au changement de jour'
+            :_fdp.source==='recalage'?'recalée sur le site à '+fmtTime(_fdp.ts||Date.now())
+            :_fdp.source==='demarrage'?'suivi démarré à '+fmtTime(_fdp.baseTs||Date.now())
+            :'saisie au point de minuit';
+    html+='<div class="card" style="border:1px solid rgba(77,171,247,0.25)">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">'
+      +'<span style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:var(--blue2)">🏦 Pré-paiement estimé</span>'
+      +'<button class="btn-sm btn-ghost" onclick="recalerPrepaiement()">📖 J\'ai lu le site</button></div>'
+      +'<div class="ir"><span class="il">Graine de minuit</span><span class="iv">'+fmtF(_fdp.principal||0)+'</span></div>'
+      +'<div style="font-size:10px;color:var(--t3);margin:-4px 0 6px">'+_src+'</div>'
+      +'<div class="ir"><span class="il">+ Recharges créditées aujourd\'hui</span><span class="iv c-green">'+fmtF(_rj)+'</span></div>'
+      +'<div class="ir"><span class="il">± Activité du jour (Mac)</span><span class="iv" style="color:'+(_var===null?'var(--t3)':_var>=0?'var(--green2)':'var(--red2)')+'">'+(_var===null?'en attente des bots':(_var>=0?'+':'')+fmtF(_var))+'</span></div>'
+      +'<div style="height:1px;background:var(--b2);margin:8px 0"></div>'
+      +'<div class="ir"><span class="il" style="font-weight:700;font-size:13px">= Pré-paiement maintenant</span><span style="font-family:\'DM Mono\',monospace;font-size:17px;font-weight:700;color:'+(_pp===null?'var(--t3)':'var(--blue2)')+'">'+(_pp===null?'—':fmtF(_pp))+'</span></div>'
+      +(_pp===null&&typeof prepaiementMotif==='function'?'<div style="font-size:10px;color:var(--warn);margin-top:4px">⏳ Non calculable : '+esc(prepaiementMotif())+'</div>':'')
+      +'</div>';
+  }
+
+  // ── POINT DU SOIR : compte par compte ──
+  /* Le rapport Telegram de 23h55 donne trois soldes ; l'app les reconstruit
+     chacun (attendu) et met en face ce que les bots lisent (réel). L'écart
+     par compte dit OÙ chercher, pas seulement combien. */
+  var pc=pointComptes();
+  if (pc) {
+    var nowH=new Date(), heurePoint=(nowH.getHours()===23&&nowH.getMinutes()>=55)||nowH.getHours()<4;
+    var tAtt=pc.nonAttrib, tReel=0, tousLus=true;
+    var rowsHtml='';
+    for(var i=0;i<pc.rows.length;i++){
+      var rw=pc.rows[i]; tAtt+=rw.attendu;
+      if(rw.reel===null) tousLus=false; else tReel+=rw.reel;
+      var ec=(rw.reel===null)?null:Math.round(rw.reel-rw.attendu);
+      var ecHtml=ec===null?'<span style="font-size:10px;color:var(--t3)">—</span>'
+        :Math.abs(ec)<=10?'<span class="badge badge-ok">✅ 0</span>'
+        :ec>0?'<span class="badge badge-surplus">+'+fmt(ec)+'</span>':'<span class="badge badge-manquant">−'+fmt(Math.abs(ec))+'</span>';
+      rowsHtml+='<div style="padding:8px 0;border-bottom:1px solid var(--b1)">'
+        +'<div style="display:flex;justify-content:space-between;align-items:center"><span style="font-weight:700;font-size:12px">'+(rw.code==='p'?'🏦 ':'💳 ')+esc(rw.nom)+'</span>'+ecHtml+'</div>'
+        +'<div style="display:flex;justify-content:space-between;margin-top:3px;font-size:11px"><span style="color:var(--t3)">Attendu</span><span style="font-family:\'DM Mono\',monospace;font-weight:700">'+fmtF(Math.round(rw.attendu))+'</span></div>'
+        +'<div style="display:flex;justify-content:space-between;font-size:11px"><span style="color:var(--t3)">Réel · <span style="font-size:10px">'+esc(rw.src)+'</span></span><span style="font-family:\'DM Mono\',monospace;font-weight:700;color:'+(rw.reel===null?'var(--t3)':'var(--blue2)')+'">'+(rw.reel===null?'—':fmtF(Math.round(rw.reel)))+'</span></div>'
+        +'</div>';
+    }
+    html+='<div class="card" style="border:1px solid '+(heurePoint?'rgba(245,166,35,0.5)':'rgba(255,255,255,0.08)')+'">'
+      +'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px">'
+      +'<span style="font-size:9px;font-weight:700;letter-spacing:1.5px;text-transform:uppercase;color:'+(heurePoint?'var(--gold)':'var(--t3)')+'">🕛 Point du soir — compte par compte</span>'
+      +(S.wallets.length>=2?'<span class="sh-link" onclick="openModal(\'modalVirement\')">↔️ Virement</span>':'')+'</div>'
+      +'<div style="font-size:10px;color:var(--t3);margin-bottom:6px">'+(heurePoint?'📨 C\'est l\'heure : compare avec ton rapport Telegram de 23h55.':'À comparer avec ton rapport Telegram de 23h55.')+' Volumes '+(pc.bts?'depuis le démarrage à '+fmtTime(pc.bts):'du jour')+' : dépôts '+fmt(pc.dep)+' · retraits '+fmt(pc.ret)+'</div>'
+      +(pc.apportRet>0?'<div style="font-size:10px;color:var(--blue2);margin-bottom:4px">↩️ Retraits payés par DepotPlus, entrés au pré-paiement : +'+fmtF(Math.round(pc.apportRet))+'</div>':'')
+      +rowsHtml
+      +(Math.abs(pc.nonAttrib)>0.5?'<div style="display:flex;justify-content:space-between;padding:8px 0;font-size:11px;border-bottom:1px solid var(--b1)"><span style="color:var(--warn)">⚠️ Mouvements sans compte attribué</span><span style="font-family:\'DM Mono\',monospace;font-weight:700;color:var(--warn)">'+(pc.nonAttrib>0?'+':'−')+fmtF(Math.abs(Math.round(pc.nonAttrib)))+'</span></div>':'')
+      +'<div style="display:flex;justify-content:space-between;padding-top:10px"><span style="font-weight:700;font-size:13px">Total</span>'
+      +'<span style="text-align:right"><div style="font-family:\'DM Mono\',monospace;font-weight:700;font-size:14px">'+fmtF(Math.round(tAtt))+'</div>'
+      +(tousLus?'<div style="font-size:10px;color:'+(Math.abs(tReel-tAtt)<=10?'var(--green2)':tReel>tAtt?'var(--purple)':'var(--red2)')+'">réel '+fmtF(Math.round(tReel))+' · écart '+(tReel-tAtt>=0?'+':'−')+fmt(Math.abs(Math.round(tReel-tAtt)))+'</div>':'<div style="font-size:10px;color:var(--t3)">réel : un compte manque</div>')+'</span></div>';
+    if(pc.virs.length){
+      html+='<div style="margin-top:8px;font-size:10px;color:var(--t3);font-weight:700;letter-spacing:1px;text-transform:uppercase">↔️ Virements internes du jour</div>';
+      for(var i=0;i<pc.virs.length;i++){ var vv=pc.virs[i];
+        html+='<div style="display:flex;justify-content:space-between;align-items:center;font-size:11px;padding:4px 0"><span>'+fmtTime(vv.ts)+' · '+esc(nomCompte(vv.from))+' → '+esc(nomCompte(vv.to))+(vv.note?' · '+esc(vv.note):'')+'</span><span style="display:flex;gap:6px;align-items:center"><span style="font-family:\'DM Mono\',monospace;font-weight:700">'+fmtF(vv.montant)+'</span><button class="btn-sm btn-danger" style="padding:2px 7px" onclick="delVirement('+vv.id+')">🗑️</button></span></div>'; }
+    }
+    html+='</div>';
   }
 
   // ── OBJECTIF ──
@@ -1529,7 +1664,7 @@ function renderHome() {
     if (S.journee.fondsDepart) {
       var fd2=S.journee.fondsDepart;
       ch+='<div class="fchip fchip-p">'+esc(S.principal.nom)+' '+fmt(fd2.principal)+'</div>';
-      for (var i=0; i<fd2.wallets.length; i++) ch+='<div class="fchip fchip-w">'+esc(fd2.wallets[i].nom)+' '+fmt(fd2.wallets[i].solde)+'</div>';
+      for (var i=0; i<fd2.wallets.length; i++) { if (estHorsCaisse(S.wallets[i]||fd2.wallets[i])) continue; ch+='<div class="fchip fchip-w">'+esc(fd2.wallets[i].nom)+' '+fmt(fd2.wallets[i].solde)+'</div>'; }
     } else {
       /* ══ CE QUI A FAIT PERDRE CONFIANCE LE 26/08 ═══════════════════════
          Tant que les fonds ne sont pas figés, cette branche affichait
@@ -1591,7 +1726,7 @@ function renderSaisie() {
       +'<div class="step-header">'
       +'<div class="step-icon step-icon-minuit"><span class="step-emoji">🌙</span><span class="step-heure step-heure-minuit">00:00</span></div>'
       +'<div class="step-info"><div class="step-nom">Soldes à minuit</div><div class="step-desc">Fonds de départ — figé pour toute la journée</div></div>'
-      +(S.journee.fondsDepart?'<span class="badge badge-ok">✓ Fait</span>':'')
+      +(S.journee.fondsDepart?(S.journee.fondsDepart.aConfirmer?'<span class="badge badge-surplus">⏳ À confirmer</span>':'<span class="badge badge-ok">✓ Fait</span>'):'')
       +'</div>';
 
   if (S.journee.fondsDepart) {
@@ -1608,6 +1743,7 @@ function renderSaisie() {
         +'<input class="fd-inp" type="number" inputmode="numeric" value="'+fd.principal+'"'
         +' onchange="majFondDepart(\'p\',0,this.value)"></div>';
     for (var i=0; i<fd.wallets.length; i++) {
+      if (estHorsCaisse(S.wallets[i]||fd.wallets[i])) continue;   // compte DepotPlus : hors caisse
       var au = soldeAuto(fd.wallets[i].nom);
       var estManuel = au!==null && Number(au)!==Number(fd.wallets[i].solde);
       html+='<div class="ir"><span class="il">📱 '+fd.wallets[i].nom
@@ -1621,7 +1757,18 @@ function renderSaisie() {
           +' onchange="majFondDepart(\'w\','+i+',this.value)"></span></div>';
     }
     html+='<div class="ir" style="border-top:1px solid var(--b2);margin-top:4px;padding-top:8px"><span class="il" style="font-weight:700">Total fonds de départ</span><span class="iv c-gold" style="font-size:14px">'+fmtF(fd.total)+'</span></div>'
-        +'</div></div>';
+        +'<div style="font-size:10px;color:var(--t3);margin-top:6px">'
+        +(fd.baseTs?'▶️ Suivi démarré à '+fmtTime(fd.baseTs)+' · déjà passés avant : '+fmt(fd.baseDep||0)+' dépôts / '+fmt(fd.baseRet||0)+' retraits'
+          :fd.source==='cloture'?'Reporté de la clôture du '+(fd.sourceDate||'')
+          :fd.source==='report'?'⚠️ Reporté automatiquement au changement de jour (pas vérifié)'
+          :fd.source==='recalage'?'Recalé sur le site'
+          :'Saisi au point de minuit')+'</div>'
+        +'</div>'
+        +(fd.aConfirmer
+          ?'<div style="margin-top:10px;padding:10px 12px;background:var(--wrd);border:1px solid rgba(255,176,32,0.3);border-radius:10px;font-size:11px;color:var(--t2);line-height:1.5"><b style="color:var(--warn)">⏳ Fonds proposé automatiquement — à vérifier.</b><br>Compare avec le site et Wave. Tant que tu n\'as pas confirmé, les jalons 14H et clôture restent fermés.</div>'
+           +'<div style="display:flex;gap:8px;margin-top:10px"><button class="btn-primary btn-green" style="flex:1" onclick="confirmerFonds()">✅ Confirmer</button><button class="btn-primary" style="flex:1;background:var(--s2)!important;color:var(--text)!important;box-shadow:none!important" onclick="corrigerFonds()">✏️ Corriger</button></div>'
+          :'<button class="btn-sm btn-ghost" style="margin-top:10px;width:100%" onclick="redemarrerSuivi()">▶️ Redémarrer le suivi maintenant avec les soldes réels</button>')
+        +'</div>';
   } else {
     html+='<div class="step-body">'
         +'<div class="sol-block"><div class="sol-title">Saisissez les soldes réels maintenant</div>';
@@ -1642,24 +1789,37 @@ function renderSaisie() {
        demain, figé à l'heure, tout soit juste. */
     try {
       var _lv = window.PRADEX && window.PRADEX.live;
-      if (memeJour() && _lv && _lv.journee &&
-          (Number(_lv.journee.depots) > 0 || Number(_lv.journee.retraits) > 0)) {
+      var _bd = 0, _br = 0, _src = 'à saisir';
+      if (memeJour() && _lv && _lv.journee) { _bd = Number(_lv.journee.depots)||0; _br = Number(_lv.journee.retraits)||0; _src = 'lus par les bots'; }
+      if (S.journee.restart || _bd > 0 || _br > 0) {
         html+='<div style="background:var(--wrd);border:1px solid rgba(255,176,32,0.28);'
             +'border-radius:10px;padding:9px 11px;margin-bottom:10px;font-size:11px;'
             +'line-height:1.5;color:var(--warn)">'
-            +'<b>⚠️ La journée a déjà tourné avant que tu figes.</b><br>'
-            +'<span style="color:var(--t2)">Déjà enregistré aujourd\'hui : '
-            +fmtF(_lv.journee.depots)+' de dépôts et '+fmtF(_lv.journee.retraits)
-            +' de retraits. Tes gains sont comptés depuis minuit, mais ces fonds '
-            +'partent de maintenant : l\'écart d\'aujourd\'hui sera décalé. '
-            +'Fige quand même — c\'est indispensable pour la suite — et lis '
-            +'l\'écart du jour avec cette réserve. Demain, en figeant au réveil, '
-            +'il sera juste.</span></div>';
+            +'<b>▶️ Le suivi démarrera au moment où tu figes.</b><br>'
+            +'<span style="color:var(--t2)">Les soldes que tu saisis reflètent déjà l\'activité du jour. '
+            +'Indique ce qui est déjà passé aujourd\'hui ('+_src+') : seuls les mouvements suivants '
+            +'compteront dans les gains, le prépaiement estimé et le point du soir.</span>'
+            +'<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:8px">'
+            +'<div><div style="font-size:9px;color:var(--t3);margin-bottom:3px">Dépôts déjà faits</div><input class="finp" type="number" id="minuit-basedep" value="'+_bd+'" inputmode="numeric" style="padding:8px"></div>'
+            +'<div><div style="font-size:9px;color:var(--t3);margin-bottom:3px">Retraits déjà faits</div><input class="finp" type="number" id="minuit-baseret" value="'+_br+'" inputmode="numeric" style="padding:8px"></div>'
+            +'</div></div>';
       }
     } catch(e){}
 
+    /* Graine proposée : le prépaiement validé à la dernière clôture. Il n'y a
+       pas de meilleure estimation disponible sans lire le site ; on la
+       propose, il confirme ou corrige. */
+    var _prop=null, _propSrc='';
+    try {
+      if (S.journee.propose && S.journee.propose.principal!=null) { _prop=S.journee.propose.principal; _propSrc='valeur proposée (à corriger si besoin)'; }
+      else {
+        var _la=S.journeesArchivees[0];
+        if (_la && _la.cloture && _la.cloture.prepaiement!=null) { _prop=_la.cloture.prepaiement; _propSrc='clôture du '+_la.dateShort; }
+      }
+    } catch(e){}
     html+='<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-p">Pré-paiement</span>'+S.principal.nom+'</div>'
-        +'<input class="sol-inp" type="number" id="minuit-p" placeholder="À lire sur le site..." inputmode="numeric"></div>'
+        +'<input class="sol-inp" type="number" id="minuit-p" placeholder="À lire sur le site..." inputmode="numeric"'+(_prop!==null?' value="'+_prop+'"':'')+'></div>'
+        +(_prop!==null?'<div style="font-size:10px;color:var(--green2);margin:-4px 0 10px 2px;line-height:1.45">✅ Proposé d\'après la '+_propSrc+' ('+fmt(_prop)+'). Corrige si le site dit autre chose.</div>':'')
         /* Seul champ des trois que nous ne pouvons pas proposer, et il faut le
            dire : le prépaiement calculé vaut « ce départ + recharges +
            variation ». Le déduire de lui-même n'a pas de sens. Un champ vide
@@ -1669,8 +1829,10 @@ function renderSaisie() {
         +'site. Tout le reste de la journée s\'en déduit.</div>';
 
     for (var i=0; i<S.wallets.length; i++) {
+      if (estHorsCaisse(S.wallets[i])) continue;   // compte DepotPlus : pas dans cette caisse
+      var _pw=(S.journee.propose&&S.journee.propose.wallets&&S.journee.propose.wallets[i])?S.journee.propose.wallets[i].solde:null;
       html+='<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-w">Wave</span>'+S.wallets[i].nom+'</div>'
-          +'<input class="sol-inp" type="number" id="minuit-w-'+i+'" placeholder="Solde actuel..." inputmode="numeric"></div>';
+          +'<input class="sol-inp" type="number" id="minuit-w-'+i+'" placeholder="Solde actuel..." inputmode="numeric"'+(_pw!==null?' value="'+_pw+'"':'')+'></div>';
     }
     /* Les deux soldes Wave, eux, sont lus par les bots : on dit d'où ils
        viennent et quand, pour qu'il puisse corriger en connaissance de cause
@@ -1679,7 +1841,7 @@ function renderSaisie() {
       var _sd = (window.PRADEX && window.PRADEX.soldes) || {};
       if (memeJour() && (_sd.depots != null || _sd.retraits != null)) {
         html+='<div style="font-size:10px;color:var(--t3);margin:-4px 0 10px 2px;line-height:1.45">'
-            +'✅ Soldes Wave proposés d\'après la lecture des bots'
+            +'ℹ️ Lecture des bots indiquée sous chaque champ — à toi de saisir les soldes'
             +esc(typeof window.PRADEX.heureLecture === 'function'
                    ? window.PRADEX.heureLecture(_sd) : '')
             +'. Corrige-les librement, ta saisie prime toujours.</div>';
@@ -1691,7 +1853,7 @@ function renderSaisie() {
   html+='</div>';
 
   // AJUSTEMENT
-  if (S.journee.fondsDepart) {
+  if (fondsConfirme()) {
     html+='<div class="step-card">'
         +'<div class="step-header" style="cursor:pointer" onclick="openModal(\'modalAjustement\')">'
         +'<div class="step-icon step-icon-adj"><span class="step-emoji">💱</span></div>'
@@ -1701,8 +1863,12 @@ function renderSaisie() {
         +'</div></div>';
   }
 
+  if (S.journee.fondsDepart && S.journee.fondsDepart.aConfirmer) {
+    html+='<div class="step-card" style="opacity:.75"><div class="step-header"><div class="step-num" style="background:var(--s2)">🔒</div>'
+        +'<div class="step-info"><div class="step-nom">Bilan 14H et clôture verrouillés</div><div class="step-desc">Confirme ou corrige d\'abord le point de minuit ci-dessus.</div></div></div></div>';
+  }
   // ÉTAPE 2 : 14H
-  if (S.journee.fondsDepart) {
+  if (fondsConfirme()) {
     html+='<div class="step-card">'
         +'<div class="step-header">'
         +'<div class="step-icon step-icon-14"><span class="step-emoji">☀️</span><span class="step-heure step-heure-14">14:00</span></div>'
@@ -1721,6 +1887,11 @@ function renderSaisie() {
           +'</div>'
           +(S.journee.cloture?'':'<button class="btn-sm btn-ghost" style="margin-top:10px;width:100%" onclick="corrigerBilan14()">✏️ Corriger le bilan 14H</button>')
           +'</div>';
+    } else if (bilan14NonApplicable()) {
+      html+='<div class="step-body"><div style="padding:10px 12px;background:var(--bg2);border-radius:10px;font-size:11px;color:var(--t2);line-height:1.5">'
+          +'⏭️ <b>Non applicable aujourd\'hui.</b> Le suivi a démarré à '+fmtTime(S.journee.fondsDepart.baseTs)
+          +', après 14h : la période 00h→14h est entièrement avant ton démarrage, il n\'y a rien à mesurer. '
+          +'Passe directement à la <b>clôture</b> ce soir.</div></div>';
     } else {
       html+='<div class="step-body">'+buildSaisieForm('14h','Cumul dépôts 00H → 14H (FCFA)','Cumul retraits 00H → 14H (FCFA)','✅ Valider bilan 14H',false)+'</div>';
     }
@@ -1728,13 +1899,17 @@ function renderSaisie() {
   }
 
   // ÉTAPE 3 : CLÔTURE 00H
-  if (S.journee.bilan14) {
+  /* La clôture ne dépend plus du Bilan 14H : si le 14H n'est pas applicable
+     (suivi démarré après 14h) ou a été sauté, la clôture couvre toute la
+     période depuis le démarrage — sinon la journée ne pouvait plus se fermer. */
+  if (fondsConfirme()) {
     html+='<div class="step-card">'
         +'<div class="step-header">'
         +'<div class="step-icon step-icon-00"><span class="step-emoji">🌙</span><span class="step-heure step-heure-00">00:00</span></div>'
         +'<div class="step-info"><div class="step-nom">Clôture 00H</div><div class="step-desc">Statut final journée 00H→00H</div></div>'
         +(S.journee.cloture?'<span class="badge badge-ok">✓ Clôturé</span>':'')
-        +'</div>';
+        +'</div>'
+        +((!S.journee.bilan14&&!S.journee.cloture&&!bilan14NonApplicable())?'<div style="margin:0 14px 8px;padding:8px 12px;background:var(--wrd);border:1px solid rgba(255,176,32,0.25);border-radius:10px;font-size:11px;color:var(--t2)">ℹ️ Bilan 14H non fait : la clôture couvrira toute la journée d\'un coup.</div>':'');
     if (S.journee.cloture) {
       var bc=S.journee.cloture;
       var gj2=gainJour();
@@ -1835,26 +2010,13 @@ function buildSaisieForm(id, lblDep, lblRet, btnTxt, isCloture) {
          quand tout est rempli, il reste UN geste à faire, et le dire
          mollement reviendrait à laisser croire que c'est fait. Rien n'est
          jamais écrit dans son état financier sans son clic. */
-      var pp = (typeof prepaiementCalcule === 'function') ? prepaiementCalcule() : null;
-      if (pp != null) {
-        att = '<div class="att-bloc att-pret">'
-            + '<div class="att-titre">✅ ' + quoi
-            + " Tout est prêt — il ne manque que ta validation.</div>"
-            + '<div class="att-txt">Les volumes, tes soldes Wave et ton '
-            + 'pré-paiement (<b>' + fmtF(pp) + ' F</b>, calculé) sont '
-            + 'remplis ci-dessous. <b>Rien n\'est enregistré tant que tu '
-            + "n'as pas cliqué.</b> Vérifie le pré-paiement contre "
-            + "ton compte 1xbet — s'il diffère, corrige-le, ta saisie "
-            + 'gagne toujours.</div></div>';
-      } else {
-        att = '<div class="att-bloc">'
-            + '<div class="att-titre">⏳ ' + quoi + " Rien n'a été validé à ta place.</div>"
-            + '<div class="att-txt">Les volumes et tes soldes Wave sont déjà remplis'
-            + ' ci-dessous, avec les chiffres de la bonne période. '
-            + '<b>Il ne manque que ton pré-paiement</b> — '
-            + prepaiementMotif()
-            + ' Tape-le, vérifie le reste, et valide.</div></div>';
-      }
+      /* Règle simple : les bots remplissent les VOLUMES ; les soldes
+         (pré-paiement, Wave) sont saisis par lui. Un seul message. */
+      att = '<div class="att-bloc">'
+          + '<div class="att-titre">⏳ ' + quoi + " Rien n'a été validé à ta place.</div>"
+          + '<div class="att-txt">Les volumes de la période sont remplis par les bots. '
+          + '<b>Tape ton pré-paiement et ton solde Wave</b>, vérifie, puis valide. '
+          + "Rien n'est enregistré sans ton clic.</div></div>";
     }
   var html=att+'<div class="card" style="background:var(--bg2);border:1px solid var(--b1)">'
           +'<div class="fgrp"><label class="flbl">'+lblDep+'</label>'
@@ -1877,6 +2039,7 @@ function buildSaisieForm(id, lblDep, lblRet, btnTxt, isCloture) {
       +'<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-p">Pré-paiement</span>'+S.principal.nom+'</div>'
       +'<input class="sol-inp" type="number" id="ssol-p-'+id+'" placeholder="Solde actuel..." inputmode="numeric" oninput="onSoldeInput(\''+id+'\')"></div>';
   for (var wi=0; wi<S.wallets.length; wi++) {
+    if (estHorsCaisse(S.wallets[wi])) continue;   // compte DepotPlus : pas dans cette caisse
     html+='<div class="sol-item"><div class="sol-lbl"><span class="sbadge sbadge-w">Wave</span>'+S.wallets[wi].nom+'</div>'
         +'<input class="sol-inp" type="number" id="ssol-w-'+id+'-'+wi+'" placeholder="Solde actuel..." inputmode="numeric" oninput="onSoldeInput(\''+id+'\')"></div>';
   }
@@ -1920,7 +2083,8 @@ function onInput(id) {
   var prev=document.getElementById('cprev-'+id);
   if (!prev) return;
   if (dep===0&&ret===0) { prev.style.display='none'; return; }
-  var ecartDep=dep, ecartRet=ret;
+  var _bv=baseVolumes();
+  var ecartDep=Math.max(0,dep-_bv.dep), ecartRet=Math.max(0,ret-_bv.ret);
   if (id==='00h'&&S.journee.bilan14) { ecartDep=Math.max(0,dep-S.journee.bilan14.dep); ecartRet=Math.max(0,ret-S.journee.bilan14.ret); }
   var g=calcGains(ecartDep,ecartRet);
   prev.style.display='block';
@@ -1937,26 +2101,27 @@ function onSoldeInput(id) {
   var retEl=document.getElementById('sret-'+id);
   var dep=depEl?(parseFloat(depEl.value)||0):0;
   var ret=retEl?(parseFloat(retEl.value)||0):0;
-  var ecartDep=dep, ecartRet=ret;
+  var _bv=baseVolumes();
+  var ecartDep=Math.max(0,dep-_bv.dep), ecartRet=Math.max(0,ret-_bv.ret);
   if (id==='00h'&&S.journee.bilan14) { ecartDep=Math.max(0,dep-S.journee.bilan14.dep); ecartRet=Math.max(0,ret-S.journee.bilan14.ret); }
   var g=calcGains(ecartDep,ecartRet);
   var fd=getFondsDepart();
   var gainPrec=0; if(id==='00h'&&S.journee.bilan14) gainPrec=S.journee.bilan14.gainNet;
   var bCrypto=benefCryptoJour();
-  var soldeAttendu=fd+gainPrec+g.gainNet+bCrypto;
+  var soldeAttendu=fd+gainPrec+g.gainNet+bCrypto+apportRetraitsHorsCaisse(ret);
 
   var pEl=document.getElementById('ssol-p-'+id);
   var pVal=pEl?parseFloat(pEl.value):NaN;
   var wVals=[];
   for (var i=0; i<S.wallets.length; i++) {
     var wEl=document.getElementById('ssol-w-'+id+'-'+i);
-    wVals.push(wEl?parseFloat(wEl.value):NaN);
+    wVals.push(estHorsCaisse(S.wallets[i])?0:(wEl?parseFloat(wEl.value):NaN));
   }
 
   var totEl=document.getElementById('totprev-'+id);
   if (!totEl) return;
   var anyFilled=!isNaN(pVal);
-  for (var i=0; i<wVals.length; i++) { if(!isNaN(wVals[i])) { anyFilled=true; break; } }
+  for (var i=0; i<wVals.length; i++) { if(!estHorsCaisse(S.wallets[i])&&!isNaN(wVals[i])) { anyFilled=true; break; } }
   if (!anyFilled) { totEl.style.display='none'; return; }
   totEl.style.display='block';
 
@@ -1966,10 +2131,10 @@ function onSoldeInput(id) {
     bdHtml+='<div class="tot-row"><span style="color:var(--blue2)">'+S.principal.nom+'</span><span style="font-family:\'DM Mono\',monospace;font-weight:600">'+fmtF(pVal)+'</span></div>';
   }
   for (var i=0; i<S.wallets.length; i++) {
-    if (!isNaN(wVals[i])) {
+    if (!estHorsCaisse(S.wallets[i]) && !isNaN(wVals[i])) {
       runTotal+=wVals[i];
       bdHtml+='<div class="tot-row"><span style="color:var(--green2)">+ '+S.wallets[i].nom+'</span><span style="font-family:\'DM Mono\',monospace;font-weight:600">'+fmtF(wVals[i])+'</span></div>';
-    } else {
+    } else if (!estHorsCaisse(S.wallets[i])) {
       bdHtml+='<div class="tot-row"><span style="color:var(--t3)">+ '+S.wallets[i].nom+'</span><span style="font-size:10px;color:var(--t3)">non renseigné</span></div>';
     }
   }
@@ -2009,12 +2174,13 @@ function jalonEnAttente(id) {
   try {
     if (id === '14h') {
       if (S.journee.bilan14) return false;          // déjà validé
-      if (!S.journee.fondsDepart) return false;     // minuit pas encore figé
+      if (!fondsConfirme()) return false;           // minuit pas encore figé/confirmé
+      if (bilan14NonApplicable()) return false;     // démarrage après 14h
       return new Date().getHours() >= 14;
     }
     if (id === '00h') {
       if (S.journee.cloture) return false;
-      if (!S.journee.fondsDepart) return false;
+      if (!fondsConfirme()) return false;
       /* En attente si la journée en cours n'est pas celle d'aujourd'hui —
          donc une journée passée jamais clôturée — ou en fin de soirée. */
       return S.journee.date !== todayStr() || new Date().getHours() >= 23;
@@ -2073,12 +2239,61 @@ function restaurerSoldeAuto(idx) {
   majFondDepart('w', idx, au);
 }
 
+/* ══ LE POINT DE MINUIT SE CONFIRME, IL NE SE VALIDE PLUS TOUT SEUL ══
+   Un fonds reporté automatiquement (clôture de la veille, changement de
+   jour) n'est qu'une PROPOSITION. Tant qu'il n'est pas confirmé, les jalons
+   14H et clôture restent fermés : rien ne se calcule sur un chiffre qu'il
+   n'a pas vu. */
+function fondsConfirme() {
+  return !!(S.journee.fondsDepart && !S.journee.fondsDepart.aConfirmer);
+}
+function confirmerFonds() {
+  var fd=S.journee.fondsDepart; if(!fd) return;
+  fd.aConfirmer=false; fd.confirmeTs=Date.now();
+  saveState(); renderTBar(); renderSaisie(); renderHome();
+  toast('✅ Point de minuit confirmé : '+fmtF(fd.total));
+}
+function corrigerFonds() {
+  var fd=S.journee.fondsDepart; if(!fd) return;
+  // On garde les valeurs proposées pour pré-remplir l'écran de saisie
+  S.journee.propose={principal:fd.principal, wallets:fd.wallets};
+  S.journee.fondsDepart=null;
+  S.journee.restart=true;
+  saveState(); renderTBar(); renderSaisie(); renderHome();
+  showPage('pg-saisie',null);
+  toast('✏️ Corrige les soldes puis « Figer »');
+}
+function bilan14NonApplicable() {
+  // Suivi démarré après 14h : le point 00h→14h est entièrement AVANT le
+  // démarrage, il n'y a rien à mesurer. On passe directement à la clôture.
+  var fd=S.journee.fondsDepart;
+  if(!fd||!fd.baseTs||S.journee.bilan14) return false;
+  return new Date(fd.baseTs).getHours()>=14;
+}
+function redemarrerSuivi() {
+  /* Le fonds de départ affiché est faux (report automatique d'une vieille
+     journée, graine jamais vérifiée…) : on repart des soldes réels lus
+     MAINTENANT. Les gains, le prépaiement estimé et le point du soir ne
+     compteront que ce qui vient après. */
+  if(!confirm('Redémarrer le suivi maintenant ?\n\nLe fonds de départ actuel et le bilan 14H du jour (s\'il existe) seront effacés. Tu vas ressaisir les soldes réels de cet instant, et seuls les mouvements suivants compteront.')) return;
+  if (S.journee.bilan14) {
+    var b=S.journee.bilan14;
+    S.surplusHist=S.surplusHist.filter(function(e){ return !(e.tranche==='14h'&&Math.abs(e.ts-b.ts)<5000); });
+    S.journee.bilan14=null;
+  }
+  S.journee.fondsDepart=null;
+  S.journee.restart=true;
+  saveState(); renderTBar(); renderSaisie(); renderHome();
+  showPage('pg-saisie',null);
+  toast('▶️ Saisis les soldes réels de maintenant puis « Figer »');
+}
 function validerMinuit() {
   var pEl=document.getElementById('minuit-p');
   var pVal=pEl?parseFloat(pEl.value):NaN;
   if (isNaN(pVal)) { toast('❌ Entrez le solde Pré-paiement'); return; }
   var wSoldes=[], total=pVal;
   for (var i=0; i<S.wallets.length; i++) {
+    if (estHorsCaisse(S.wallets[i])) { wSoldes.push({nom:S.wallets[i].nom, solde:Number(S.wallets[i].solde)||0}); continue; }
     var wEl=document.getElementById('minuit-w-'+i);
     var wVal=wEl?parseFloat(wEl.value):NaN;
     if (isNaN(wVal)) { toast('❌ Entrez tous les soldes Wave'); return; }
@@ -2086,12 +2301,198 @@ function validerMinuit() {
     total+=wVal;
   }
   S.journee.fondsDepart={principal:pVal, wallets:wSoldes, total:total};
-  S.principal.solde=pVal;
-  for (var i=0; i<S.wallets.length; i++) S.wallets[i].solde=wSoldes[i].solde;
+  delete S.journee.propose;
+  // Figé en cours de journée : on mémorise les volumes déjà passés pour ne
+  // compter, à partir d'ici, que ce qui vient après (gains, prépaiement, point).
+  var _demarre=false;
+  try {
+    var _bdEl=document.getElementById('minuit-basedep'), _brEl=document.getElementById('minuit-baseret');
+    var _bd=_bdEl?(parseFloat(_bdEl.value)||0):0, _br=_brEl?(parseFloat(_brEl.value)||0):0;
+    if (S.journee.restart || _bd>0 || _br>0) {
+      S.journee.fondsDepart.baseDep=_bd;
+      S.journee.fondsDepart.baseRet=_br;
+      S.journee.fondsDepart.baseTs=Date.now();
+      S.journee.fondsDepart.source='demarrage';
+      _demarre=true;
+    }
+    S.journee.restart=false;
+  } catch(e){}
+  S.principal.solde=pVal; S.principal.soldeTs=Date.now();
+  for (var i=0; i<S.wallets.length; i++) { S.wallets[i].solde=wSoldes[i].solde; if(!estHorsCaisse(S.wallets[i])) S.wallets[i].soldeTs=Date.now(); }
   saveState(); renderTBar(); renderSaisie(); renderHome();
-  toast('🌙 Fonds figé : '+fmtF(total));
+  toast(_demarre?'▶️ Suivi démarré à '+fmtTime(Date.now())+' — fonds : '+fmtF(total):'🌙 Fonds figé : '+fmtF(total));
 }
 
+// ── SUIVI COMPTE PAR COMPTE ──
+/* Même appariement par nom que la liaison bots : un portefeuille dont le
+   nom évoque « dépôt / 1x / service » reçoit les dépôts clients ; « pradex /
+   xchange / retrait » paie les retraits. Sans correspondance, on n'attribue
+   rien — mieux vaut une ligne « non attribué » qu'un mauvais compte. */
+function roleWallet(nom){
+  var n=(nom||'').toLowerCase();
+  if(/1x|service|d[ée]p[oô]t/.test(n)) return 'depots';
+  if(/pradex|xchange|retrait/.test(n)) return 'retraits';
+  return null;
+}
+function walletDefaut(role){
+  for(var i=0;i<S.wallets.length;i++){ if(roleWallet(S.wallets[i].nom)===role) return 'w'+i; }
+  return '';
+}
+/* ══ PORTEFEUILLE HORS CAISSE ══
+   Le compte PRADEX (retraits) appartient au projet DepotPlus : son solde ne
+   compte plus dans la caisse de cette app. Un retrait client crédite quand
+   même le pré-paiement (+102 %) — l'argent vient de l'autre projet, on
+   l'affiche comme tel. Par défaut : le portefeuille reconnu « retraits » est
+   hors caisse ; modifiable dans Config. */
+function estHorsCaisse(w){
+  if(!w) return false;
+  if(w.horsCaisse!==undefined&&w.horsCaisse!==null) return !!w.horsCaisse;
+  return roleWallet(w.nom)==='retraits';
+}
+function retraitsPayesEnCaisse(){
+  var wr=walletDefaut('retraits'); if(!wr) return false;
+  return !estHorsCaisse(S.wallets[parseInt(wr.slice(1),10)]);
+}
+function apportRetraitsHorsCaisse(ret){
+  // Retraits payés depuis un compte hors caisse : ce qui sort (montant + frais)
+  // ne sort pas d'ici, mais le pré-paiement est crédité. Pour cette caisse,
+  // c'est une entrée nette égale à ce que l'autre projet a payé.
+  ret=Number(ret)||0;
+  return retraitsPayesEnCaisse()?0:ret*(1+S.taux.fraisOp/100);
+}
+function recalcFondsDepartTotal(){
+  var fd=S.journee.fondsDepart; if(!fd||!fd.wallets) return;
+  var t=Number(fd.principal)||0;
+  for(var i=0;i<fd.wallets.length;i++){ if(!estHorsCaisse(S.wallets[i]||fd.wallets[i])) t+=Number(fd.wallets[i].solde)||0; }
+  fd.total=Math.round(t);
+}
+function toggleHorsCaisse(i){
+  if(!S.wallets[i]) return;
+  S.wallets[i].horsCaisse=!estHorsCaisse(S.wallets[i]);
+  recalcFondsDepartTotal(); saveState();
+  renderCfg(); renderHome(); renderSaisie(); renderTBar();
+  toast(S.wallets[i].horsCaisse?'➖ '+S.wallets[i].nom+' exclu de la caisse':'➕ '+S.wallets[i].nom+' compté dans la caisse');
+}
+function nomCompte(code){
+  if(code==='p') return S.principal.nom;
+  if(code&&code.charAt(0)==='w'){ var w=S.wallets[parseInt(code.slice(1),10)]; return w?w.nom:'?'; }
+  return 'Non précisé';
+}
+function optionsComptes(avecPrepaiement, avecVide){
+  var h='';
+  if(avecVide) h+='<option value="">Non précisé</option>';
+  if(avecPrepaiement) h+='<option value="p">🏦 '+esc(S.principal.nom)+'</option>';
+  for(var i=0;i<S.wallets.length;i++) h+='<option value="w'+i+'">💳 '+esc(S.wallets[i].nom)+(estHorsCaisse(S.wallets[i])?' (hors caisse)':'')+'</option>';
+  return h;
+}
+function remplirSelectsComptes(){
+  var wd=walletDefaut('depots'), wr=walletDefaut('retraits');
+  var a=document.getElementById('adjCompte'); if(a){ a.innerHTML=optionsComptes(true,true); a.value=wd; }
+  var pp=document.getElementById('ppCompte'); if(pp){ pp.innerHTML=optionsComptes(false,true); pp.value=wd; }
+  var rc=document.getElementById('rechCompte'); if(rc){ rc.innerHTML=optionsComptes(false,false); rc.value=wd; }
+  var vf=document.getElementById('virFrom'); if(vf){ vf.innerHTML=optionsComptes(false,false); vf.value=wr||''; }
+  var vt=document.getElementById('virTo'); if(vt){ vt.innerHTML=optionsComptes(false,false); vt.value=wd||''; }
+}
+function saveVirement(){
+  var from=document.getElementById('virFrom').value, to=document.getElementById('virTo').value;
+  var m=parseFloat(document.getElementById('virMontant').value);
+  var note=document.getElementById('virNote').value.trim();
+  if(!from||!to){toast('❌ Choisis les deux comptes');return;}
+  if(from===to){toast('❌ Les deux comptes sont identiques');return;}
+  if(isNaN(m)||m<=0){toast('❌ Montant invalide');return;}
+  if(!S.virements) S.virements=[];
+  S.virements.push({id:Date.now(),ts:Date.now(),date:S.journee.date,from:from,to:to,montant:m,note:note});
+  saveState(); closeModal('modalVirement');
+  var vm=document.getElementById('virMontant'); if(vm) vm.value='';
+  var vn=document.getElementById('virNote'); if(vn) vn.value='';
+  renderHome();
+  toast('↔️ '+fmtF(m)+' : '+nomCompte(from)+' → '+nomCompte(to));
+}
+function delVirement(id){
+  if(!confirm('Supprimer ce virement interne ?')) return;
+  S.virements=S.virements.filter(function(v){return v.id!==id;});
+  saveState(); renderHome(); toast('🗑️ Virement supprimé');
+}
+function pointComptes(){
+  /* Solde ATTENDU de chaque compte, reconstruit depuis la graine de minuit :
+       Pré-paiement : − dépôts×(1−comm) + retraits×(1+comm) + recharges créditées
+       Wave dépôt   : + dépôts×(1−frais) − recharges sorties
+       Wave retrait : − retraits×(1+frais)
+     puis virements internes et ajustements attribués. La somme des trois
+     retombe exactement sur le solde attendu global. */
+  var fd=S.journee.fondsDepart; if(!fd) return null;
+  var gj=gainJour(), dep=Number(gj.depNet)||0, ret=Number(gj.retNet)||0, t=S.taux, today=S.journee.date, bts=baseVolumes().ts;
+  var att={p:Number(fd.principal)||0};
+  for(var i=0;i<S.wallets.length;i++){ var fw=fd.wallets&&fd.wallets[i]; att['w'+i]=fw?(Number(fw.solde)||0):0; }
+  var wd=walletDefaut('depots'), wr=walletDefaut('retraits'), nonAttrib=0;
+  att.p+=-dep*(1-t.commDep/100)+ret*(1+t.commRet/100);
+  if(wd) att[wd]+=dep*(1-t.fraisOp/100); else nonAttrib+=dep*(1-t.fraisOp/100);
+  // Retraits : la sortie (montant + frais) n'existe ici que si le compte
+  // qui paie est dans la caisse. Sinon (DepotPlus), seul le crédit du
+  // pré-paiement compte — c'est un apport venu de l'autre projet.
+  if(retraitsPayesEnCaisse()) att[wr]-=ret*(1+t.fraisOp/100);
+  for(var i=0;i<S.rechargements.length;i++){
+    var r=S.rechargements[i]; if(r.date!==today) continue;
+    if(bts&&(r.ts||0)<bts) continue;
+    att.p+=Number(r.recoit)||0;
+    var c=r.compte||wd, sortie=Number(r.debite!=null?r.debite:r.envoye)||0;
+    if(c&&att[c]!==undefined) att[c]-=sortie; else nonAttrib-=sortie;
+  }
+  var virs=[];
+  if(S.virements){ for(var i=0;i<S.virements.length;i++){ var v=S.virements[i]; if(v.date!==today) continue; if(bts&&(v.ts||0)<bts) continue; virs.push(v);
+    if(att[v.from]!==undefined) att[v.from]-=v.montant; if(att[v.to]!==undefined) att[v.to]+=v.montant; } }
+  for(var i=0;i<S.journee.ajustements.length;i++){
+    var a=S.journee.ajustements[i], s=a.type==='apport'?a.montant:-a.montant;
+    if(bts&&a.ts&&a.ts<bts) continue;
+    if(a.compte&&att[a.compte]!==undefined) att[a.compte]+=s; else nonAttrib+=s;
+  }
+  var sd=(window.PRADEX&&window.PRADEX.soldes)||{}; var hl=window.PRADEX&&window.PRADEX.heureLecture;
+  /* « Réel » = ce que TU as saisi (point de minuit, jalon, recalage) depuis
+     le début du suivi — jamais la lecture des bots, qui peut être fausse ou
+     périmée (le 10/09 : bots 33 755, réel 425 355). Les bots restent une
+     indication à côté. */
+  var depuis=bts||Number(fd.ts)||new Date().setHours(0,0,0,0);
+  var rows=[], ppReel=null, ppSrc='à saisir au prochain jalon';
+  if(S.principal.soldeTs&&S.principal.soldeTs>=depuis){ ppReel=Number(S.principal.solde); ppSrc='saisi par toi à '+fmtTime(S.principal.soldeTs); }
+  rows.push({code:'p',nom:S.principal.nom,attendu:att.p,reel:ppReel,src:ppSrc});
+  for(var i=0;i<S.wallets.length;i++){
+    if(estHorsCaisse(S.wallets[i])) continue;
+    var w=S.wallets[i], role=roleWallet(w.nom), val=null, src='à saisir au prochain jalon', botsV=null;
+    try{
+      if(role==='depots'&&sd.depots!=null) botsV=Number(sd.depots);
+      if(role==='retraits'&&sd.retraits!=null) botsV=Number(sd.retraits);
+    }catch(e){}
+    if(w.soldeTs&&w.soldeTs>=depuis){ val=Number(w.solde); src='saisi par toi à '+fmtTime(w.soldeTs); }
+    if(botsV!==null) src+=' · bots : '+fmt(botsV);
+    rows.push({code:'w'+i,nom:w.nom,attendu:att['w'+i],reel:val,src:src});
+  }
+  return {rows:rows,nonAttrib:nonAttrib,dep:dep,ret:ret,virs:virs,apportRet:apportRetraitsHorsCaisse(ret),bts:bts};
+}
+function recalerPrepaiement() {
+  /* « J'ai lu X sur le site » : on aligne le modèle sur la valeur observée.
+     La dérive absorbée est tracée deux fois — en ajustement (elle corrige le
+     solde attendu) et dans les écarts (tranche « recal ») — pour qu'on voie,
+     jour après jour, si le modèle dérive et de combien. */
+  if(!S.journee.fondsDepart){toast('❌ Fige d\'abord le point de minuit');return;}
+  var est=(typeof prepaiementCalcule==='function')?prepaiementCalcule():null;
+  var saisie=prompt('Pré-paiement lu sur le site (FCFA) :'+(est!==null?'\n\nEstimé par l\'app : '+fmt(est)+' FCFA':''));
+  if(saisie===null) return;
+  var lu=parseFloat(String(saisie).replace(/\s/g,'').replace(',','.'));
+  if(isNaN(lu)||lu<0){toast('❌ Montant invalide');return;}
+  var fd=S.journee.fondsDepart;
+  var base=(est!==null)?est:Math.round((fd.principal||0)+(typeof rechargesJour==='function'?rechargesJour():0));
+  var deriv=Math.round(lu-base);
+  fd.principal=Math.round((fd.principal||0)+deriv);
+  fd.source='recalage'; fd.ts=Date.now(); fd.sourceDate=S.journee.date;
+  S.principal.solde=Math.round(lu); S.principal.soldeTs=Date.now();
+  if(deriv!==0){
+    S.journee.ajustements.push({id:Date.now(),type:deriv>0?'apport':'retrait',montant:Math.abs(deriv),motif:'🔧 Recalage pré-paiement (site : '+fmt(lu)+')',ts:Date.now(),auto:true,compte:'p'});
+    S.surplusHist.push({id:Date.now()+1,montant:deriv,ts:Date.now(),tranche:'recal',caisse:Math.round(lu),attendu:Math.round(base)});
+  }
+  saveState(); renderHome(); renderSaisie(); renderTBar();
+  try { if (typeof window.pxSync==='function') window.pxSync(true); } catch(e){}
+  toast(deriv===0?'✅ Le modèle était juste':'🔧 Recalé : '+(deriv>0?'+':'')+fmtF(deriv)+' d\'écart absorbé');
+}
 function corrigerBilan14() {
   if(!S.journee.bilan14) return;
   if(!confirm('Corriger le bilan 14H ?\n\nLes valeurs saisies seront effacées et tu pourras les ressaisir.')) return;
@@ -2103,22 +2504,24 @@ function corrigerBilan14() {
   toast('✏️ Bilan 14H réinitialisé — ressaisis les valeurs');
 }
 function valider(id) {
+  if (!fondsConfirme()) { toast('❌ Confirme d\'abord le point de minuit'); return; }
   var depEl=document.getElementById('sdep-'+id);
   var retEl=document.getElementById('sret-'+id);
   var dep=depEl?(parseFloat(depEl.value)||0):0;
   var ret=retEl?(parseFloat(retEl.value)||0):0;
-  var ecartDep=dep, ecartRet=ret;
+  var _bv=baseVolumes();
+  var ecartDep=Math.max(0,dep-_bv.dep), ecartRet=Math.max(0,ret-_bv.ret);
   if (id==='00h'&&S.journee.bilan14) { ecartDep=Math.max(0,dep-S.journee.bilan14.dep); ecartRet=Math.max(0,ret-S.journee.bilan14.ret); }
   var g=calcGains(ecartDep,ecartRet);
   var fd=getFondsDepart();
   var gainPrec=0; if(id==='00h'&&S.journee.bilan14) gainPrec=S.journee.bilan14.gainNet;
   var bCrypto=benefCryptoJour();
-  var soldeAttendu=fd+gainPrec+g.gainNet+bCrypto;
+  var soldeAttendu=fd+gainPrec+g.gainNet+bCrypto+apportRetraitsHorsCaisse(ret);
 
   var pEl=document.getElementById('ssol-p-'+id);
   var pVal=pEl?parseFloat(pEl.value):NaN;
   var wVals=[];
-  for (var i=0;i<S.wallets.length;i++) { var wEl=document.getElementById('ssol-w-'+id+'-'+i); wVals.push(wEl?parseFloat(wEl.value):NaN); }
+  for (var i=0;i<S.wallets.length;i++) { var wEl=document.getElementById('ssol-w-'+id+'-'+i); wVals.push(estHorsCaisse(S.wallets[i])?0:(wEl?parseFloat(wEl.value):NaN)); }
   var allFilled=!isNaN(pVal); for(var i=0;i<wVals.length;i++){if(isNaN(wVals[i])){allFilled=false;break;}}
 
   var totalReel=0, diff=0, statut='ok';
@@ -2126,8 +2529,8 @@ function valider(id) {
     totalReel=pVal; for(var i=0;i<wVals.length;i++) totalReel+=wVals[i];
     diff=totalReel-soldeAttendu;
     if(diff>10) statut='surplus'; else if(diff<-10) statut='manquant';
-    S.principal.solde=pVal;
-    for(var i=0;i<S.wallets.length;i++) S.wallets[i].solde=wVals[i];
+    S.principal.solde=pVal; S.principal.soldeTs=Date.now();
+    for(var i=0;i<S.wallets.length;i++){ if(!estHorsCaisse(S.wallets[i])) { S.wallets[i].solde=wVals[i]; S.wallets[i].soldeTs=Date.now(); } }
     if (statut==='surplus'||statut==='manquant') {
       S.surplusHist.push({id:Date.now(), montant:Math.round(diff), ts:Date.now(), tranche:id,
         caisse:Math.round(totalReel), attendu:Math.round(soldeAttendu)});
@@ -2136,7 +2539,8 @@ function valider(id) {
 
   var bilan={dep:dep, ret:ret, ecartDep:ecartDep, ecartRet:ecartRet,
     gainBrut:g.gainBrut, frais:g.frais, gainNet:g.gainNet,
-    soldeAttendu:soldeAttendu, totalReel:totalReel, diff:diff, statut:statut, ts:Date.now()};
+    soldeAttendu:soldeAttendu, totalReel:totalReel, diff:diff, statut:statut, ts:Date.now(),
+    prepaiement:(isNaN(pVal)?null:Math.round(pVal))};
 
   if (id==='14h') {
     S.journee.bilan14=bilan;
@@ -2165,9 +2569,23 @@ function valider(id) {
       roulementFinal:totalRoulement()
     };
     S.journeesArchivees.unshift(journee);
-    S.journee={date:todayStr(), fondsDepart:null, ajustements:[], bilan14:null, cloture:null};
+    /* ══ GRAINE DU LENDEMAIN ══
+       Avant : la nouvelle journée repartait avec fondsDepart=null. Tant que
+       le point de minuit n'était pas refait, le prépaiement n'était plus
+       calculable et tous les écarts se calculaient contre zéro. C'est ce qui
+       donnait l'impression que l'app « ne connaît pas le prépaiement ».
+       Maintenant : la caisse réelle validée à la clôture (prépaiement +
+       soldes Wave) devient le fonds de départ de la journée suivante. Le
+       modèle repart d'une valeur observée. Le point de minuit reste possible
+       pour recaler. */
+    var seed=null;
+    if (allFilled) {
+      var sw=[]; for(var i=0;i<S.wallets.length;i++) sw.push({nom:S.wallets[i].nom, solde:estHorsCaisse(S.wallets[i])?(Number(S.wallets[i].solde)||0):wVals[i]});
+      seed={principal:Math.round(pVal), wallets:sw, total:Math.round(totalReel), auto:true, aConfirmer:true, source:'cloture', sourceDate:S.journee.date, ts:Date.now()};
+    }
+    S.journee={date:todayStr(), fondsDepart:seed, ajustements:[], bilan14:null, cloture:null};
     saveState(); renderTBar(); renderSaisie(); renderHome(); renderHist();
-    toast('🎉 Journée clôturée — Bénéfice net réel : +'+fmtF(journee.benefNetReel));
+    toast('🎉 Journée clôturée — Bénéfice net réel : +'+fmtF(journee.benefNetReel)+(seed?' · fonds de demain reportés':''));
     showPage('pg-hist',null);
     // Proposition de sauvegarde : la clôture est le meilleur moment
     setTimeout(function(){
@@ -2189,7 +2607,8 @@ function saveAjustement() {
   var motif=document.getElementById('adjMotif').value.trim();
   if(isNaN(m)||m<=0){toast('❌ Montant invalide');return;}
   if(!motif){toast('❌ Entrez un motif');return;}
-  S.journee.ajustements.push({id:Date.now(),type:adjType,montant:m,motif:motif,ts:Date.now()});
+  var adjC=document.getElementById('adjCompte'); var compte=adjC?adjC.value:'';
+  S.journee.ajustements.push({id:Date.now(),type:adjType,montant:m,motif:motif,ts:Date.now(),compte:compte});
   saveState(); closeModal('modalAjustement');
   var am=document.getElementById('adjMontant');if(am)am.value='';
   var amf=document.getElementById('adjMotif');if(amf)amf.value='';
@@ -2358,14 +2777,17 @@ function calcRech() {
   var prev=document.getElementById('rechPreview'); if(!prev) return;
   if(isNaN(e)||isNaN(c)){prev.style.display='none';return;}
   prev.style.display='block';
-  // National: 1% frais nets. Inter: 1.5% prélevé - 1% remboursé = 0.5% net
+  /* ══ COÛT RÉEL, PAS THÉORIQUE ══
+     Le coût d'une recharge, c'est ce qui est sorti de Wave moins ce que le
+     site a crédité : frais Wave et écart de change sont déjà dans ces deux
+     chiffres. Avant, on soustrayait EN PLUS des frais théoriques (1 %), donc
+     le coût était compté deux fois — 5 000 F d'erreur par recharge de
+     500 000, et un faux « manquant » de 5 000 au jalon suivant. */
   var taux=rechType==='national'?(S.taux.rechNat/100):(S.taux.rechInter/100);
-  var frais=Math.round(e*taux);
-  var cashback=rechType==='international'?Math.round(e*0.01):0;
-  var benef=Math.round(c-e-frais);
-  var fEl=document.getElementById('rechFrais');if(fEl)fEl.textContent='-'+fmtF(frais)+(rechType==='international'?' (1.5%−1% remb.)':'');
+  var fraisTheo=Math.round(e*taux);
+  var benef=Math.round(c-e);
+  var fEl=document.getElementById('rechFrais');if(fEl)fEl.textContent='≈ '+fmtF(fraisTheo)+' (déjà inclus)';
   var rEl=document.getElementById('rechRecoit');if(rEl)rEl.textContent=fmtF(c);
-  var cbEl=document.getElementById('rechCashback');if(cbEl){cbEl.parentElement.style.display=rechType==='international'?'flex':'none';cbEl.textContent='+'+fmtF(cashback);}
   var bEl=document.getElementById('rechBenef');
   if(bEl){bEl.textContent=(benef>=0?'+':'')+fmtF(benef);bEl.style.color=benef>=0?'var(--green2)':'var(--red2)';}
 }
@@ -2375,19 +2797,23 @@ function saveRech() {
   var note=document.getElementById('rechNote').value.trim();
   if(isNaN(e)||e<=0){toast('❌ Entrez le montant envoyé');return;}
   if(isNaN(c)||c<=0){toast('❌ Entrez la valeur crypto');return;}
-  var taux=rechType==='national'?(S.taux.rechNat/100):(S.taux.rechInter/100);
-  var frais=Math.round(e*taux);
-  var cashback=rechType==='international'?Math.round(e*0.01):0;
-  var benef=Math.round(c-e-frais);
-  S.rechargements.push({id:Date.now(),ts:Date.now(),envoye:e,crypto:c,frais:frais,cashback:cashback,recoit:c,benef:benef,note:note,date:S.journee.date,typeTransfert:rechType});
+  // benef = crédité − sorti (coût réel, frais et change inclus) ; `frais`
+  // garde le coût réel pour l'historique et les stats, jamais une théorie.
+  var benef=Math.round(c-e);
+  var frais=Math.max(0,Math.round(e-c));
+  var rcC=document.getElementById('rechCompte'); var compte=rcC?rcC.value:'';
+  S.rechargements.push({id:Date.now(),ts:Date.now(),envoye:e,debite:e,crypto:c,frais:frais,cashback:0,recoit:c,benef:benef,note:note,date:S.journee.date,typeTransfert:rechType,reel:true,compte:compte});
   saveState(); closeModal('modalRech');
   var re=document.getElementById('rechEnvoye');if(re)re.value='';
   var rc=document.getElementById('rechCrypto');if(rc)rc.value='';
   var rn=document.getElementById('rechNote');if(rn)rn.value='';
   var rp=document.getElementById('rechPreview');if(rp)rp.style.display='none';
   rechType='national'; setRechType('national');
-  renderRech(); renderHome();
-  toast(benef>=0?'✅ +'+fmtF(benef)+' bénéfice crypto':'⚠️ '+fmtF(benef)+' perte crypto');
+  renderRech(); renderHome(); renderSaisie(); renderTBar();
+  // Le prépaiement estimé vient de bouger : on resynchronise les champs
+  // proposés (jalons) sans attendre le prochain passage des bots.
+  try { if (typeof window.pxSync==='function') window.pxSync(true); } catch(e){}
+  toast(benef>=0?'✅ Recharge : +'+fmtF(benef)+' de gain':'✅ Recharge enregistrée — coût '+fmtF(Math.abs(benef)));
 }
 function renderRech() {
   var today=S.journee.date;
@@ -2402,7 +2828,7 @@ function renderRech() {
       stEl.innerHTML='<div class="hist-stats" style="margin-bottom:10px">'
         +'<div class="hist-stats-title">📊 Rechargements du jour ('+today+')</div>'
         +'<div class="hsr"><span class="hsl">💰 Pré-paiement rechargé</span><span class="hsv c-blue">'+fmtF(tER)+'</span></div>'
-        +'<div class="hsr"><span class="hsl">⚠️ Frais Wave total</span><span class="hsv c-warn">-'+fmtF(tEF)+'</span></div>'
+        +'<div class="hsr"><span class="hsl">⚠️ Coût des recharges (frais + change)</span><span class="hsv c-warn">-'+fmtF(tEF)+'</span></div>'
         +'<div class="hsr"><span class="hsl" style="font-weight:700">'+(tEB>=0?'✅ Bénéfice crypto':'❌ Perte crypto')+'</span>'
         +'<span class="hsv" style="color:'+(tEB>=0?'var(--green2)':'var(--red2)')+'">'+( tEB>=0?'+':'')+fmtF(tEB)+'</span></div>'
         +'</div>';
@@ -2420,11 +2846,9 @@ function renderRech() {
         +'<div style="margin-top:3px">'+typeTag+(r.note?'<span style="font-size:10px;color:var(--t3);margin-left:6px">📝 '+esc(r.note)+'</span>':'')+'</div></div>'
         +'<span class="badge '+(r.benef>=0?'badge-ok':'badge-manquant')+'">'+(r.benef>=0?'✅ +':' ❌ ')+fmtF(Math.abs(r.benef))+'</span></div>'
         +'<div class="rech-detail">'
-        +'<div class="ir"><span class="il">Montant envoyé Wave</span><span class="iv">'+fmtF(r.envoye)+'</span></div>'
-        +'<div class="ir"><span class="il">Valeur crypto vendue</span><span class="iv c-blue">'+fmtF(r.crypto)+'</span></div>'
-        +'<div class="ir"><span class="il">Frais Wave nets</span><span class="iv c-warn">-'+fmtF(r.frais)+'</span></div>'
-        +(r.typeTransfert==='international'?'<div class="ir"><span class="il" style="color:var(--green2)">💚 Cashback Wave (1%)</span><span class="iv c-green">+'+fmtF(r.cashback||Math.round(r.envoye*0.01))+'</span></div>':'')
-        +'<div class="ir"><span class="il" style="font-weight:700">Pré-paiement reçoit</span><span class="iv c-green">'+fmtF(r.recoit)+'</span></div>'
+        +'<div class="ir"><span class="il">Sorti de Wave</span><span class="iv">'+fmtF(r.debite||r.envoye)+'</span></div>'
+        +'<div class="ir"><span class="il" style="font-weight:700">Crédité sur le pré-paiement</span><span class="iv c-green">'+fmtF(r.recoit)+'</span></div>'
+        +'<div class="ir"><span class="il">'+(r.reel?'Coût réel (frais + change)':'Frais Wave (ancien calcul)')+'</span><span class="iv c-warn">-'+fmtF(r.frais)+'</span></div>'
         +'</div>'
         +'<div style="text-align:right;margin-top:8px"><button class="btn-sm btn-danger" onclick="delRech('+r.id+')">🗑️ Supprimer</button></div>'
         +'</div>';
@@ -2501,7 +2925,7 @@ function renderSurplusList() {
   for(var i=liste.length-1;i>=0;i--){
     var s=liste[i];
     var isS=s.montant>=0;
-    var trLbl=s.tranche==='14h'?'Bilan 14H':s.tranche==='00h'?'Clôture 00H':'Contrôle manuel';
+    var trLbl=s.tranche==='14h'?'Bilan 14H':s.tranche==='00h'?'Clôture 00H':s.tranche==='recal'?'🔧 Recalage pré-paiement':'Contrôle manuel';
     html+='<div class="card-sm" style="border-left:3px solid '+(isS?'rgba(177,151,252,0.4)':'rgba(255,77,109,0.4)')+'">'
         +'<div style="display:flex;justify-content:space-between;align-items:center;gap:8px">'
         +'<span style="font-weight:700;font-size:12px">'+fmtDate(s.ts)+' · '+fmtTime(s.ts)+'</span>'
@@ -2551,8 +2975,9 @@ function savePrisePerso() {
   // Traçabilité : l'argent sort physiquement de la caisse → on crée un
   // ajustement retrait sur la journée pour que le solde attendu reste juste
   // et que la prise apparaisse dans l'historique de la journée
+  var ppC=document.getElementById('ppCompte'); var compte=ppC?ppC.value:'';
   if(S.journee.fondsDepart){
-    S.journee.ajustements.push({id:Date.now()+1,type:'retrait',montant:m,motif:'👤 Prise perso — '+motif,ts:Date.now(),auto:true});
+    S.journee.ajustements.push({id:Date.now()+1,type:'retrait',montant:m,motif:'👤 Prise perso — '+motif,ts:Date.now(),auto:true,compte:compte});
   }
   saveState(); closeModal('modalPrisePerso');
   var pm=document.getElementById('ppMotif');if(pm)pm.value='';
@@ -3087,8 +3512,9 @@ function renderCfg() {
   if(S.wallets.length===0) wHtml='<div style="font-size:12px;color:var(--t3);text-align:center;padding:10px">Aucun portefeuille Wave</div>';
   else {
     for(var i=0;i<S.wallets.length;i++){
-      wHtml+='<div class="wcfg-item"><div><div class="wcfg-name">📱 '+esc(S.wallets[i].nom)+'</div><div class="wcfg-sol">'+fmtF(S.wallets[i].solde)+'</div></div>'
-            +'<button class="btn-sm btn-danger" onclick="removeWallet('+i+')">✕</button></div>';
+      var hc=estHorsCaisse(S.wallets[i]);
+      wHtml+='<div class="wcfg-item"><div><div class="wcfg-name">📱 '+esc(S.wallets[i].nom)+' '+(hc?'<span class="badge" style="background:var(--wrd);color:var(--warn)">hors caisse · DepotPlus</span>':'<span class="badge badge-ok">en caisse</span>')+'</div><div class="wcfg-sol">'+fmtF(S.wallets[i].solde)+'</div></div>'
+            +'<div style="display:flex;gap:6px"><button class="btn-sm btn-ghost" onclick="toggleHorsCaisse('+i+')">'+(hc?'➕ Compter':'➖ Exclure')+'</button><button class="btn-sm btn-danger" onclick="removeWallet('+i+')">✕</button></div></div>';
     }
   }
   el.innerHTML='<div>'
@@ -3132,7 +3558,8 @@ function renderCfg() {
     +'soldes Wave lus depuis moins de 45 minutes, et ton pré-paiement calculé — '
     +'le point de 14 h se valide seul. La clôture ne part que sur une journée '
     +'déjà écoulée, jamais sur la journée en cours. '
-    +'S\'il manque quoi que ce soit, rien n\'est validé et tu gardes la main.'
+    +'S\'il manque quoi que ce soit, rien n\'est validé et tu gardes la main. '
+    +'<b>Désactivée par défaut</b> : tu vérifies et valides chaque point toi-même.'
     +'</div>'
     +'<button class="btn-primary" style="background:'+(autoValidationActive()?'var(--green2)':'var(--s2)')+'" onclick="toggleAutoJalons()">'
     +(autoValidationActive()?'✅ Activée — cliquer pour désactiver':'⏸️ Désactivée — cliquer pour activer')+'</button>'
@@ -3306,6 +3733,7 @@ function importJSON(event) {
       if(!S.taux) S.taux={commDep:5,commRet:2,fraisOp:1,rechNat:1,rechInter:0.5};
       if(!S.seuilCapital) S.seuilCapital=0;
       if(!S.credits) S.credits=[];
+      if(!S.virements) S.virements=[];
       if(!S.objectifMois) S.objectifMois=0;
       if(!S.lastBackupTs) S.lastBackupTs=0;
       if(!S.pinLockUntil) S.pinLockUntil=0;
@@ -3894,8 +4322,25 @@ setInterval(function(){
       cible['sdep-14h'] = l.bilan14.depots;  cible['sret-14h'] = l.bilan14.retraits;
       cible['sdep-00h'] = l.journee.depots;  cible['sret-00h'] = l.journee.retraits;
     }
+    /* ══ LES SOLDES, C'EST LUI QUI LES SAISIT ══
+       Règle simple demandée : les bots remplissent les VOLUMES (dépôts,
+       retraits) ; le solde du pré-paiement et le solde Wave sont tapés par
+       lui. On n'écrit donc plus rien dans les champs de soldes — on affiche
+       seulement, sous chaque champ, ce que les bots ont lu (ou ce que l'app
+       estime), à titre d'indication. */
     var cs = ciblesSoldes();
-    for (var k in cs) cible[k] = cs[k];
+    for (var k in cs) {
+      var elh = document.getElementById(k); if (!elh) continue;
+      var hid = 'px-hint-' + k, h = document.getElementById(hid);
+      if (!h) {
+        h = document.createElement('div'); h.id = hid;
+        h.style.cssText = 'font-size:10px;color:#8b93a7;margin:-6px 0 8px 2px';
+        elh.insertAdjacentElement('afterend', h);
+      }
+      var txt = (k.indexOf('ssol-p') === 0 ? 'ℹ️ estimé par l\'app : ' : 'ℹ️ lu par les bots : ')
+              + Number(cs[k]).toLocaleString('fr-FR') + ' F — à toi de saisir le vrai solde';
+      if (h.textContent !== txt) h.textContent = txt;   // stable : pas de boucle avec l'observateur
+    }
 
     var n = 0;
     for (var id in cible) {
