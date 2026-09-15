@@ -1120,52 +1120,21 @@ function rechargesJour() {
 }
 
 function prepaiementCalcule() {
-  /* ══ LE PRÉPAIEMENT, CALCULÉ AU LIEU D'ÊTRE SAISI ══
-     Convention mesurée sur pièce le 19/08/2026, pas devinée :
-
-        prépaiement = départ + recharges − dépôts + retraits
-                      + 5 % dépôts + 2 % retraits
-
-     Un dépôt consomme 95 % de son montant, un retrait en rend 102 % : le
-     site recrédite la commission brute au moment de la confirmation. Vérifié
-     contre un relevé réel — 1 367 129 F attendus, 1 367 141,5 prédits, soit
-     12,50 F d'écart sur 1,37 million.
-
-     Le Mac fournit la VARIATION (tout ce que l'activité des bots a bougé) et
-     les taux avec. Nous n'ajoutons que les deux termes qu'il est seul à
-     connaître : le départ figé le matin et les recharges de la journée.
-     Un seul calcul, un seul jeu de taux — c'est ce qui empêche les deux
-     côtés de diverger.
-
-     Renvoie null dès qu'un terme manque. Un prépaiement faux vaut moins que
-     pas de prépaiement : c'est le chiffre le plus lourd de sa caisse. */
+  /* ══ LE PRÉPAIEMENT, CALCULÉ EN TEMPS RÉEL, ICI ══
+     prépaiement = graine de minuit + recharges créditées
+                   − dépôts×(1 − comm. dépôt) + retraits×(1 + comm. retrait)
+     Les volumes viennent de gainJour() : les bots (pour la journée ouverte,
+     même si c'est celle d'hier) ou les jalons validés. Si le suivi a démarré
+     en cours de journée, seuls les volumes après le démarrage comptent.
+     Plus aucune dépendance au champ « prepaiement » du Mac : le calcul est
+     le même que celui du point du soir, avec TES taux. */
   try {
-    /* Suivi démarré en cours de journée : la variation du Mac couvre toute la
-       journée, y compris ce qui précède le démarrage — déjà dans le solde lu.
-       On calcule donc la variation localement, depuis le démarrage seulement. */
-    var fd0 = S.journee && S.journee.fondsDepart;
-    if (fd0 && fd0.baseTs) {
-      if (fd0.principal === undefined || fd0.principal === null) return null;
-      var gj0 = gainJour(), t0 = S.taux;
-      var v0 = -(Number(gj0.depNet)||0)*(1-t0.commDep/100) + (Number(gj0.retNet)||0)*(1+t0.commRet/100);
-      return Math.round(Number(fd0.principal) + rechargesJour() + v0);
-    }
-    var p = window.PRADEX && window.PRADEX.prepaiement;
-    if (!p || !p.calculable) return null;
-    var v = Number(p.variation);
-    if (!isFinite(v)) return null;
     var fd = S.journee && S.journee.fondsDepart;
     if (!fd || fd.principal === undefined || fd.principal === null) return null;
     var depart = Number(fd.principal);
     if (!isFinite(depart)) return null;
-    /* Les chiffres du Mac doivent porter sur LA MÊME journée que l'état
-       local. Après minuit, ou si la synchro rend une vieille date, additionner
-       les deux produirait un prépaiement hybride, faux et crédible.
-
-       ⚠️ Deux formats de date cohabitent : le Mac parle ISO (2026-08-19),
-       PAIREDAS parle français (19/08/2026). Les comparer tels quels rendait
-       la garde TOUJOURS vraie, donc le prépaiement toujours nul. */
-    if (!memeJour()) return null;
+    var gj = gainJour(), t = S.taux;
+    var v = -(Number(gj.depNet)||0)*(1-t.commDep/100) + (Number(gj.retNet)||0)*(1+t.commRet/100);
     return Math.round(depart + rechargesJour() + v);
   } catch(e){ return null; }
 }
@@ -1191,21 +1160,11 @@ function memeJour() {
 }
 
 function prepaiementMotif() {
-  /* Pourquoi le prépaiement n'a PAS pu être calculé. Un champ vide sans
-     explication le laisserait chercher ; il doit savoir s'il y a quelque
-     chose à faire (figer minuit) ou rien (attendre la synchro). */
+  // Seule raison possible désormais : pas de point de départ figé.
   try {
-    var p = window.PRADEX && window.PRADEX.prepaiement;
-    if (!p) return 'les totaux du Mac ne sont pas encore arrivés.';
-    if (!p.calculable) return 'le Mac ne sait pas le calculer (' + (p.raison||'?') + ').';
     var fd = S.journee && S.journee.fondsDepart;
     if (!fd || fd.principal === undefined || fd.principal === null)
-      return 'ton point de départ de minuit n\'est pas encore figé.';
-    var l = window.PRADEX && window.PRADEX.live;
-    if (!l || !l.date) return 'les totaux du Mac ne sont pas encore arrivés.';
-    if (!memeJour())
-      return 'les chiffres du Mac portent sur le ' + isoVersFR(l.date)
-           + ', pas sur ta journée du ' + S.journee.date + '.';
+      return 'ton point de départ n\'est pas encore figé (Saisie → Figer).';
   } catch(e){}
   return 'nous ne pouvons pas le lire.';
 }
@@ -1456,6 +1415,15 @@ function renderHome() {
         +'<div style="flex:1"><div style="font-size:12px;font-weight:700;color:var(--warn)">Pense à sauvegarder tes données</div>'
         +'<div style="font-size:10px;color:var(--t3);margin-top:2px">'+(S.lastBackupTs?'Dernière sauvegarde : '+fmtDate(S.lastBackupTs):'Aucune sauvegarde JSON effectuée')+'</div></div>'
         +'<button class="btn-sm btn-gold" onclick="openModal(\'modalSave\')">Sauvegarder</button></div>';
+  }
+
+  // ── SUIVI NON DÉMARRÉ ──
+  if (!S.journee.fondsDepart) {
+    html+='<div class="card" style="border:1px solid rgba(245,166,35,0.45);background:linear-gradient(135deg,rgba(245,166,35,0.08),transparent)">'
+        +'<div style="font-size:12px;font-weight:700;color:var(--gold)">🌙 Suivi non démarré pour cette journée</div>'
+        +'<div style="font-size:11px;color:var(--t2);margin-top:4px;line-height:1.5">Le pré-paiement en temps réel, le solde attendu et le point du soir apparaîtront dès que tu auras figé tes soldes de départ.</div>'
+        +'<button class="btn-primary" style="margin-top:10px" onclick="showPage(\'pg-saisie\',null)">▶️ Saisir les soldes et démarrer</button>'
+        +'</div>';
   }
 
   // ── POINT DE MINUIT À CONFIRMER ──
@@ -1788,9 +1756,9 @@ function renderSaisie() {
        pour qu'il sache lire l'écart d'aujourd'hui pour ce qu'il vaut, et que
        demain, figé à l'heure, tout soit juste. */
     try {
-      var _lv = window.PRADEX && window.PRADEX.live;
-      var _bd = 0, _br = 0, _src = 'à saisir';
-      if (memeJour() && _lv && _lv.journee) { _bd = Number(_lv.journee.depots)||0; _br = Number(_lv.journee.retraits)||0; _src = 'lus par les bots'; }
+      var _gjb = gainJour();
+      var _bd = Number(_gjb.volDep)||0, _br = Number(_gjb.volRet)||0;
+      var _src = (_bd>0||_br>0) ? (_gjb.auto ? 'lus par les bots' : 'd\'après tes jalons') : 'à saisir';
       if (S.journee.restart || _bd > 0 || _br > 0) {
         html+='<div style="background:var(--wrd);border:1px solid rgba(255,176,32,0.28);'
             +'border-radius:10px;padding:9px 11px;margin-bottom:10px;font-size:11px;'
