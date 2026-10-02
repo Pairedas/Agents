@@ -334,6 +334,13 @@ button{cursor:pointer;touch-action:manipulation;background:none;border:none;text
 .touche[data-k="000"]{font-size:var(--t20)}
 .touche[data-k="del"] .ic{width:24px;height:24px}
 
+/* ── Clôture point OM : électronique / espèces ── */
+.part{display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:var(--s2) var(--s3);border-radius:var(--r2);background:var(--surface-2);border:1.5px solid transparent;text-align:left;min-height:56px;transition:border-color .15s,background .15s}
+.part span{display:inline-flex;align-items:center;gap:5px;font-size:var(--t12);font-weight:600;color:var(--text-3)}
+.part b{font-size:var(--t17);font-weight:650}
+.part.on{border-color:var(--accent);background:var(--accent-soft)}
+.part.on span{color:var(--accent-text)}
+
 /* ── Puces (chips) ── */
 .chips{display:flex;gap:var(--s2);overflow-x:auto;scrollbar-width:none;margin:0 calc(-1*var(--s4));padding:2px var(--s4);scroll-padding:var(--s4)}
 .chips::-webkit-scrollbar{display:none}
@@ -585,9 +592,9 @@ details.detail[open] summary .ic{transform:rotate(90deg)}
 const L = (function () {
   'use strict';
   const APP = 'caisses-herve';
-  const VERSION = 1;
+  const VERSION = 2;
   const JOUR_MS = 86400000;
-  const TYPES = ['entree', 'sortie', 'pret', 'remb', 'salaire', 'ajust'];
+  const TYPES = ['entree', 'sortie', 'pret', 'remb', 'salaire', 'ajust', 'apport'];
   const MOIS = ['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
   const MOIS_C = ['janv.','févr.','mars','avr.','mai','juin','juil.','août','sept.','oct.','nov.','déc.'];
   const JOURS = ['dim.','lun.','mar.','mer.','jeu.','ven.','sam.'];
@@ -595,7 +602,9 @@ const L = (function () {
   const CATEGORIES = {
     entree: ['Vente / recette','Commission','Dépôt','Autre'],
     sortie: ['Achat','Retrait','Travaux','Transport','Nourriture','Facture','Frais','Famille','Autre'],
+    salon: ['Travaux','Matériel','Mobilier','Main-d’œuvre','Loyer','Produits','Transport','Frais','Autre'],
   };
+  const MOTIF_MIN = 2;
 
   function E(msg) { return new Error(msg); }
   let _n = 0;
@@ -655,7 +664,8 @@ const L = (function () {
       app: APP, version: VERSION, creeLe: now,
       caisses: [
         { id: 'pradex', nom: 'PRADEX', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[0] },
-        { id: 'om', nom: 'Orange Money', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[1] },
+        { id: 'om', nom: 'OM Makora', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[1], pdv: true },
+        { id: 'om2', nom: 'OM Apsonic 3', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[5], pdv: true },
         { id: 'salon', nom: 'Salon', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[2] },
         { id: 'perso', nom: 'Perso', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[3] },
       ],
@@ -663,6 +673,8 @@ const L = (function () {
       clotures: [],
       reglages: {
         caissePerso: 'perso',
+        caisseSalon: 'salon',
+        budgetSalon: 0,
         salaire: { jour: 28, parts: [{ caisse: 'pradex', montant: 330000 }] },
         heureCloture: 19,
       },
@@ -699,7 +711,7 @@ const L = (function () {
       case 'entree': return mv.caisse === id ? mv.montant : 0;
       case 'sortie': return mv.caisse === id ? -mv.montant : 0;
       case 'ajust': return mv.caisse === id ? mv.montant : 0; // montant signé
-      default: return (mv.vers === id ? mv.montant : 0) - (mv.de === id ? mv.montant : 0); // pret, remb, salaire
+      default: return (mv.vers === id ? mv.montant : 0) - (mv.de === id ? mv.montant : 0); // pret, remb, salaire, apport
     }
   }
   /** Solde attendu = solde de départ + entrées − sorties ± prêts/remboursements ± salaire ± ajustements, jusqu'à `jusqua` (inclus). */
@@ -712,7 +724,7 @@ const L = (function () {
   }
   /** Détail des mouvements d'une caisse entre du (inclus) et au (exclu). */
   function decomposition(st, id, du, au) {
-    const d = { entrees: 0, sorties: 0, pretsRecus: 0, pretsDonnes: 0, rembRecus: 0, rembVerses: 0, salaireRecu: 0, salaireVerse: 0, ajustements: 0, nb: 0 };
+    const d = { entrees: 0, sorties: 0, pretsRecus: 0, pretsDonnes: 0, rembRecus: 0, rembVerses: 0, salaireRecu: 0, salaireVerse: 0, apportsRecus: 0, apportsDonnes: 0, ajustements: 0, nb: 0 };
     const a = du == null ? -Infinity : du, b = au == null ? Infinity : au;
     for (const mv of st.mouvements) {
       if (mv.quand < a || mv.quand >= b) continue;
@@ -724,8 +736,9 @@ const L = (function () {
       else if (mv.type === 'pret') { if (mv.vers === id) d.pretsRecus += mv.montant; if (mv.de === id) d.pretsDonnes += mv.montant; }
       else if (mv.type === 'remb') { if (mv.vers === id) d.rembRecus += mv.montant; if (mv.de === id) d.rembVerses += mv.montant; }
       else if (mv.type === 'salaire') { if (mv.vers === id) d.salaireRecu += mv.montant; if (mv.de === id) d.salaireVerse += mv.montant; }
+      else if (mv.type === 'apport') { if (mv.vers === id) d.apportsRecus += mv.montant; if (mv.de === id) d.apportsDonnes += mv.montant; }
     }
-    d.net = d.entrees - d.sorties + d.pretsRecus - d.pretsDonnes + d.rembRecus - d.rembVerses + d.salaireRecu - d.salaireVerse + d.ajustements;
+    d.net = d.entrees - d.sorties + d.pretsRecus - d.pretsDonnes + d.rembRecus - d.rembVerses + d.salaireRecu - d.salaireVerse + d.apportsRecus - d.apportsDonnes + d.ajustements;
     return d;
   }
 
@@ -743,11 +756,19 @@ const L = (function () {
     } else {
       quand = quandPourJour(o.jour, now); jour = o.jour || jourISO(now);
     }
+    // Dépense du salon payée directement depuis une autre caisse : comptée comme investissement dans le salon.
+    const pourSalon = o.type === 'sortie' && !!o.pourSalon && !!st.reglages.caisseSalon && o.caisse !== st.reglages.caisseSalon ? true : undefined;
     return nouveauMv(st, {
       type: o.type, caisse: o.caisse, montant: m,
       categorie: (o.categorie || 'Autre').slice(0, 40), note: String(o.note || '').trim().slice(0, 200),
-      quand, jour, cloture,
+      quand, jour, cloture, pourSalon,
     }, now);
+  }
+  /** Tout argent qui passe d'une caisse à une autre doit dire pourquoi. */
+  function lireMotif(note) {
+    const t = String(note || '').trim();
+    if (t.length < MOTIF_MIN) throw E('Écris le motif : pour quoi cet argent passe d’une caisse à l’autre ?');
+    return t.slice(0, 200);
   }
 
   /* ── Prêts entre caisses ── */
@@ -756,8 +777,21 @@ const L = (function () {
     exigerCaisse(st, o.de, true); exigerCaisse(st, o.vers, true);
     if (o.de === o.vers) throw E('Une caisse ne peut pas se prêter à elle-même');
     const m = lireMontant(o.montant);
+    const note = lireMotif(o.note);
     const quand = quandPourJour(o.jour, now);
-    return nouveauMv(st, { type: 'pret', de: o.de, vers: o.vers, montant: m, categorie: 'Prêt', note: String(o.note || '').trim().slice(0, 200), quand, jour: o.jour || jourISO(now) }, now);
+    return nouveauMv(st, { type: 'pret', de: o.de, vers: o.vers, montant: m, categorie: 'Prêt', note, quand, jour: o.jour || jourISO(now) }, now);
+  }
+
+  /* ── Investissement / transfert sans dette : l'argent change de caisse, personne ne doit rien ── */
+  function creerApport(st, o, now) {
+    now = now == null ? Date.now() : now;
+    exigerCaisse(st, o.de, true); exigerCaisse(st, o.vers, true);
+    if (o.de === o.vers) throw E('Choisis deux caisses différentes');
+    const m = lireMontant(o.montant);
+    const note = lireMotif(o.note);
+    const quand = quandPourJour(o.jour, now);
+    const categorie = o.vers === st.reglages.caisseSalon ? 'Investissement' : 'Transfert';
+    return nouveauMv(st, { type: 'apport', de: o.de, vers: o.vers, montant: m, categorie, note, quand, jour: o.jour || jourISO(now) }, now);
   }
   function rembourseSur(st, pretId) {
     let s = 0;
@@ -833,10 +867,12 @@ const L = (function () {
   function derniereCloture(st, id) { const l = cloturesCaisse(st, id); return l.length ? l[l.length - 1] : null; }
   /** Écart vivant : se met à jour si on ajoute une opération oubliée datée d'avant le comptage. */
   function ecartActuel(st, cl) { return cl.reel - soldeAttendu(st, cl.caisse, cl.quand); }
-  function cloturer(st, caisseId, reel, now) {
+  /** detail (facultatif, points Orange Money) : { electronique, especes } dont la somme fait le réel. */
+  function cloturer(st, caisseId, reel, now, detail) {
     now = now == null ? Date.now() : now;
     exigerCaisse(st, caisseId, true);
     const r = lireMontant(reel, true);
+    if (detail && lireMontant(detail.electronique, true) + lireMontant(detail.especes, true) !== r) throw E('Électronique + espèces ne fait pas le total');
     const jour = jourISO(now);
     const attendu = soldeAttendu(st, caisseId, now);
     const prec = st.clotures.find(x => x.caisse === caisseId && x.jour === jour && !x.remplaceePar);
@@ -844,6 +880,7 @@ const L = (function () {
     if (prec) dejaSignale = prec.dejaSignale || 0;
     else { const der = derniereCloture(st, caisseId); if (der) dejaSignale = ecartActuel(st, der); }
     const cl = { id: uid('c'), caisse: caisseId, jour, quand: now, attendu, reel: r, ecartInitial: r - attendu, dejaSignale, notes: [] };
+    if (detail) cl.detail = { electronique: detail.electronique, especes: detail.especes };
     if (prec) { prec.remplaceePar = cl.id; cl.remplace = prec.id; } // recomptage du même jour : l'ancien reste dans l'historique
     st.clotures.push(cl);
     return cl;
@@ -895,6 +932,78 @@ const L = (function () {
   function clotureDuJourPour(st, caisseId, jour) { return st.clotures.find(x => x.caisse === caisseId && x.jour === jour && !x.remplaceePar) || null; }
   function rappelCloture(st, now) { now = now == null ? Date.now() : now; return !clotureDuJour(st, now).complete && new Date(now).getHours() >= st.reglages.heureCloture; }
 
+  /* ── Suivi du salon (investissement) ── */
+  /** Argent mis dans le salon : transferts vers la caisse Salon + dépenses du salon payées depuis une autre caisse. */
+  function suiviSalon(st, now) {
+    now = now == null ? Date.now() : now;
+    const id = st.reglages.caisseSalon, c = id ? caisse(st, id) : null;
+    if (!c) return null;
+    const parSource = new Map(), parPoste = new Map(), mois = new Map();
+    let investi = 0, depense = 0, nb = 0;
+    const ajout = (map, k, v) => map.set(k, (map.get(k) || 0) + v);
+    for (const m of st.mouvements) {
+      if (m.quand > now) continue;
+      if (m.type === 'apport' && m.vers === id) { investi += m.montant; ajout(parSource, m.de, m.montant); ajout(mois, moisISO(m.quand), m.montant); nb++; }
+      else if (m.type === 'sortie' && m.pourSalon && m.caisse !== id) { investi += m.montant; depense += m.montant; ajout(parSource, m.caisse, m.montant); ajout(parPoste, m.categorie || 'Autre', m.montant); ajout(mois, moisISO(m.quand), m.montant); nb++; }
+      else if (m.type === 'sortie' && m.caisse === id) { depense += m.montant; ajout(parPoste, m.categorie || 'Autre', m.montant); }
+    }
+    const budget = st.reglages.budgetSalon || 0;
+    const tri = map => [...map.entries()].map(([k, v]) => ({ cle: k, montant: v })).sort((a, b) => b.montant - a.montant);
+    return {
+      caisse: id, investi, depense, nb, solde: soldeAttendu(st, id, now), soldeDepart: c.soldeDepart,
+      budget, resteBudget: budget ? budget - investi : null,
+      parSource: tri(parSource), parPoste: tri(parPoste),
+      moisCourant: mois.get(moisISO(now)) || 0,
+    };
+  }
+  function reglerSalon(st, o) {
+    if (o.caisse != null) { if (o.caisse && !caisse(st, o.caisse)) throw E('Caisse inconnue'); st.reglages.caisseSalon = o.caisse || null; }
+    if (o.budget != null) st.reglages.budgetSalon = lireMontant(o.budget === '' ? 0 : o.budget, true);
+  }
+
+  /* ── Point du soir : résumé d'une journée ── */
+  function resumeJour(st, jour, now) {
+    now = now == null ? Date.now() : now;
+    const debut = debutJour(jour), fin = Math.min(debutJour(decalerJour(jour, 1)) - 1, now);
+    const mvs = st.mouvements.filter(m => m.jour === jour).sort((a, b) => a.quand - b.quand);
+    const caisses = st.caisses.filter(c => !c.archivee || mvs.some(m => m.caisse === c.id || m.de === c.id || m.vers === c.id)).map(c => {
+      const avant = soldeAttendu(st, c.id, debut - 1), apres = soldeAttendu(st, c.id, fin);
+      const cl = st.clotures.find(x => x.caisse === c.id && x.jour === jour && !x.remplaceePar) || null;
+      return { caisse: c.id, avant, apres, variation: apres - avant, cloture: cl, ecart: cl ? ecartActuel(st, cl) : null };
+    });
+    const somme = t => mvs.filter(m => m.type === t).reduce((s, m) => s + m.montant, 0);
+    return {
+      jour, mvs, caisses,
+      entrees: somme('entree'), sorties: somme('sortie'),
+      listeSorties: mvs.filter(m => m.type === 'sortie'), listeEntrees: mvs.filter(m => m.type === 'entree'),
+      transferts: mvs.filter(m => ['pret', 'remb', 'apport', 'salaire'].includes(m.type)),
+      dettes: dettes(st), totalDettes: totalDettes(st),
+      clotures: caisses.filter(x => x.cloture).length, aCompter: st.caisses.filter(c => !c.archivee).length,
+      ecarts: caisses.filter(x => x.ecart),
+    };
+  }
+  /** Texte simple du point du soir, à envoyer sur WhatsApp. */
+  function texteResume(st, r) {
+    const L1 = ['*Point du ' + dateCourte(r.jour) + '*', ''];
+    L1.push('*Soldes en fin de journée*');
+    r.caisses.forEach(x => L1.push('• ' + nom(st, x.caisse) + ' : ' + fmt(x.apres) + (x.variation ? ' (' + fmtSigne(x.variation) + ')' : '')));
+    L1.push('Total : ' + fmt(r.caisses.reduce((s, x) => s + x.apres, 0)), '');
+    L1.push('*Entrées* : ' + fmt(r.entrees) + ' · *Sorties* : ' + fmt(r.sorties));
+    r.listeSorties.forEach(m => L1.push('  − ' + fmt(m.montant) + ' · ' + nom(st, m.caisse) + ' · ' + m.categorie + (m.note ? ' — ' + m.note : '')));
+    if (r.transferts.length) {
+      L1.push('', '*Entre caisses*');
+      const lib = { pret: 'prêt', remb: 'remboursement', apport: 'sans dette', salaire: 'salaire' };
+      r.transferts.forEach(m => L1.push('• ' + nom(st, m.de) + ' → ' + nom(st, m.vers) + ' : ' + fmt(m.montant) + ' (' + lib[m.type] + ')' + (m.note && m.type !== 'salaire' ? ' — ' + m.note : '')));
+    }
+    L1.push('', '*Dettes en cours*');
+    if (r.dettes.length) r.dettes.forEach(d => L1.push('• ' + nom(st, d.debiteur) + ' doit ' + fmt(d.montant) + ' à ' + nom(st, d.creancier)));
+    else L1.push('Aucune');
+    L1.push('', '*Clôture* : ' + r.clotures + '/' + r.aCompter + ' caisses comptées');
+    r.ecarts.forEach(x => L1.push('⚠ ' + nom(st, x.caisse) + ' : ' + (x.ecart < 0 ? 'il manque ' : 'en trop ') + fmt(Math.abs(x.ecart))));
+    if (r.clotures && !r.ecarts.length) L1.push('Tout est juste ✓');
+    return L1.join('\n');
+  }
+
   /* ── Bilan du mois ── */
   function bilanMois(st, mois, now) {
     now = now == null ? Date.now() : now;
@@ -911,6 +1020,8 @@ const L = (function () {
       });
     }).filter(l => !l.archivee || l.nb || l.soldeDebut || l.soldeFin);
     const tot = lignes.reduce((t, l) => { t.entrees += l.entrees; t.sorties += l.sorties; t.salaire += l.salaireVerse; t.ajustements += l.ajustements; return t; }, { entrees: 0, sorties: 0, salaire: 0, ajustements: 0 });
+    const sal = st.reglages.caisseSalon;
+    tot.investiSalon = st.mouvements.filter(m => m.quand >= du && m.quand < au && ((m.type === 'apport' && m.vers === sal) || (m.type === 'sortie' && m.pourSalon && m.caisse !== sal))).reduce((s, m) => s + m.montant, 0);
     return { mois, lignes, total: tot };
   }
 
@@ -947,8 +1058,18 @@ const L = (function () {
       ids.add(c.id);
       const sd = c.soldeDepart == null ? 0 : c.soldeDepart;
       if (!ent(sd)) throw E('Solde de départ invalide pour ' + (c.nom || c.id));
-      return { id: c.id, nom: String(c.nom || c.id).slice(0, 40), numero: String(c.numero || '').slice(0, 60), soldeDepart: sd, archivee: !!c.archivee, couleur: /^#[0-9a-f]{6}$/i.test(c.couleur || '') ? c.couleur : COULEURS[i % COULEURS.length] };
+      const o = { id: c.id, nom: String(c.nom || c.id).slice(0, 40), numero: String(c.numero || '').slice(0, 60), soldeDepart: sd, archivee: !!c.archivee, couleur: /^#[0-9a-f]{6}$/i.test(c.couleur || '') ? c.couleur : COULEURS[i % COULEURS.length] };
+      if (c.pdv) o.pdv = true;
+      if (c.aConfigurer) o.aConfigurer = true;
+      return o;
     });
+    // Version 2 : l'ancienne caisse « Orange Money » devient « OM Makora », et le 2e point « OM Apsonic 3 » est ajouté.
+    const v1 = !(typeof d.version === 'number' && d.version >= 2);
+    if (v1) {
+      const om = caisses.find(c => c.id === 'om');
+      if (om) { if (om.nom === 'Orange Money') om.nom = 'OM Makora'; om.pdv = true; }
+      if (om && !ids.has('om2')) { caisses.splice(caisses.indexOf(om) + 1, 0, { id: 'om2', nom: 'OM Apsonic 3', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[5], pdv: true, aConfigurer: !!d.departConfigure }); ids.add('om2'); }
+    }
     if (d.mouvements != null && !Array.isArray(d.mouvements)) throw E('Liste des opérations invalide');
     const mvIds = new Set(), pretIds = new Set();
     const mouvements = (d.mouvements || []).map((m, i) => {
@@ -963,6 +1084,7 @@ const L = (function () {
         creeLe: Number.isFinite(m.creeLe) ? m.creeLe : m.quand, categorie: String(m.categorie || '').slice(0, 40), note: String(m.note || '').slice(0, 200), source: String(m.source || 'manuel').slice(0, 30) };
       if (m.refExterne != null) o.refExterne = String(m.refExterne).slice(0, 80);
       if (typeof m.cloture === 'string') o.cloture = m.cloture;
+      if (m.type === 'sortie' && m.pourSalon === true) o.pourSalon = true;
       if (['entree', 'sortie', 'ajust'].includes(m.type)) {
         if (!ids.has(m.caisse)) throw err('caisse inconnue');
         o.caisse = m.caisse;
@@ -997,6 +1119,7 @@ const L = (function () {
       const o = { id: c.id, caisse: c.caisse, jour: /^\d{4}-\d{2}-\d{2}$/.test(c.jour || '') ? c.jour : jourISO(c.quand), quand: c.quand, attendu: c.attendu, reel: c.reel, ecartInitial: c.ecartInitial,
         dejaSignale: ent(c.dejaSignale) ? c.dejaSignale : 0,
         notes: Array.isArray(c.notes) ? c.notes.filter(n => n && typeof n.texte === 'string').map(n => { const x = { quand: Number(n.quand) || c.quand, texte: n.texte.slice(0, 300) }; if (ent(n.ajustement)) x.ajustement = n.ajustement; return x; }) : [] };
+      if (c.detail && ent(c.detail.electronique) && ent(c.detail.especes)) o.detail = { electronique: c.detail.electronique, especes: c.detail.especes };
       if (typeof c.remplaceePar === 'string') o.remplaceePar = c.remplaceePar;
       if (typeof c.remplace === 'string') o.remplace = c.remplace;
       return o;
@@ -1009,7 +1132,8 @@ const L = (function () {
     return {
       app: APP, version: VERSION, creeLe: Number.isFinite(d.creeLe) ? d.creeLe : Date.now(),
       caisses, mouvements, clotures,
-      reglages: { caissePerso: perso, salaire: { jour: jourSal, parts }, heureCloture: ent(r.heureCloture) && r.heureCloture >= 0 && r.heureCloture <= 23 ? r.heureCloture : def.heureCloture },
+      reglages: { caissePerso: perso, caisseSalon: r.caisseSalon === null ? null : ids.has(r.caisseSalon) ? r.caisseSalon : (ids.has('salon') ? 'salon' : null), budgetSalon: ent(r.budgetSalon) && r.budgetSalon >= 0 ? r.budgetSalon : 0,
+        salaire: { jour: jourSal, parts }, heureCloture: ent(r.heureCloture) && r.heureCloture >= 0 && r.heureCloture <= 23 ? r.heureCloture : def.heureCloture },
       derniereSauvegarde: Number.isFinite(d.derniereSauvegarde) ? d.derniereSauvegarde : null,
       departConfigure: !!d.departConfigure,
     };
@@ -1026,12 +1150,14 @@ const L = (function () {
     if (o.nom != null) { const n = String(o.nom).trim(); if (!n) throw E('Le nom de la caisse ne peut pas être vide'); c.nom = n.slice(0, 40); }
     if (o.numero != null) c.numero = String(o.numero).trim().slice(0, 60);
     if (o.soldeDepart != null) c.soldeDepart = lireMontant(o.soldeDepart === '' ? 0 : o.soldeDepart, true);
+    if (o.pdv != null) { if (o.pdv) c.pdv = true; else delete c.pdv; }
     return c;
   }
   function archiverCaisse(st, id, archiver) {
     const c = exigerCaisse(st, id);
     if (archiver !== false) {
       if (id === st.reglages.caissePerso) throw E('La caisse qui reçoit le salaire ne peut pas être archivée');
+      if (id === st.reglages.caisseSalon) st.reglages.caisseSalon = null;
       if (soldeAttendu(st, id) !== 0) throw E('Vide d’abord la caisse (solde attendu ' + fmt(soldeAttendu(st, id)) + ')');
       if (dettes(st).some(d => d.debiteur === id || d.creancier === id)) throw E('Règle d’abord les prêts de cette caisse');
       st.reglages.salaire.parts = st.reglages.salaire.parts.filter(p => p.caisse !== id);
@@ -1092,15 +1218,15 @@ const L = (function () {
   }
 
   return {
-    APP, VERSION, CATEGORIES, JOUR_MS,
+    APP, VERSION, CATEGORIES, JOUR_MS, MOTIF_MIN,
     uid, jourISO, moisISO, moisSuivant, nomMois, nomMoisSeul, dateCourte, heure, midiDe, debutMois, pad,
     parseMontant, lireMontant, fmt, fmtSigne, grouper,
     etatInitial, caisse, nom, caissesActives, effet, soldeAttendu, decomposition,
-    creerOperation, creerPret, rembourser, rembourseSur, restantPret, pretsOuverts, dettes, totalDettes, detteEntre,
+    creerOperation, creerPret, creerApport, rembourser, rembourseSur, restantPret, pretsOuverts, dettes, totalDettes, detteEntre,
     totalSalaire, dateSalaire, salairesDuMois, etatSalaire, verserSalaire, reglerSalaire,
     cloturer, trouverCloture, cloturesCaisse, derniereCloture, ecartActuel, statutCloture, ecartsNonResolus, ajouterNote, expliquerEtClore,
     clotureDuJour, clotureDuJourPour, rappelCloture,
-    bilanMois, rappelSauvegarde, exporter, importer, normaliser,
+    bilanMois, suiviSalon, reglerSalon, resumeJour, texteResume, decalerJour, rappelSauvegarde, exporter, importer, normaliser,
     ajouterCaisse, modifierCaisse, archiverCaisse, supprimerMouvement, restaurerMouvement, ajouterMouvementsExternes,
     serieSoldes, variationJour, depensesParCategorie, debutJour,
   };
@@ -1123,7 +1249,7 @@ function charger() {
   let brut = null;
   try { brut = localStorage.getItem(CLE); } catch (e) { alerteChargement = 'Ce navigateur bloque le stockage : les données ne seront pas gardées.'; }
   if (brut) {
-    try { S = L.normaliser(JSON.parse(brut)); }
+    try { const d = JSON.parse(brut); S = L.normaliser(d); if (d.version !== S.version) sauver(); }
     catch (e) {
       try { localStorage.setItem(CLE + '_illisible_' + Date.now(), brut); } catch (_) {}
       alerteChargement = 'Les données du téléphone n’ont pas pu être relues (' + e.message + '). Une copie a été gardée. Restaure ta dernière sauvegarde : Réglages → Sauvegarde.';
@@ -1174,10 +1300,11 @@ const TEINTES = {
 };
 function teinte(id) { const c = L.caisse(S, id), k = String(c && c.couleur || '').toLowerCase(); return TEINTES[k] || [k || '#4E5D74', '#222B3A']; }
 const gvars = id => { const t = teinte(id); return `--g1:${t[0]};--g2:${t[1]}`; };
-const ICONES_CAISSE = { pradex: 'brief', om: 'phone', salon: 'cut', perso: 'user' };
+const ICONES_CAISSE = { pradex: 'brief', om: 'phone', om2: 'phone', salon: 'cut', perso: 'user' };
 const icoCaisse = id => ICONES_CAISSE[id] || 'wallet';
 const avatar = (id, taille) => `<span class="av${taille ? ' ' + taille : ''}" style="${gvars(id)}" aria-hidden="true">${ICO(icoCaisse(id))}</span>`;
-const ICONES_CAT = { 'Vente / recette': 'tag', Commission: 'pct', 'Dépôt': 'down', Achat: 'bag', Retrait: 'up', Travaux: 'tool', Transport: 'car', Nourriture: 'food', Facture: 'receipt', Frais: 'pct', Famille: 'users', Autre: 'dots' };
+const ICONES_CAT = { 'Vente / recette': 'tag', Commission: 'pct', 'Dépôt': 'down', Achat: 'bag', Retrait: 'up', Travaux: 'tool', Transport: 'car', Nourriture: 'food', Facture: 'receipt', Frais: 'pct', Famille: 'users', Autre: 'dots',
+  'Matériel': 'tool', Mobilier: 'bag', 'Main-d’œuvre': 'users', Loyer: 'receipt', Produits: 'bag', Investissement: 'trend-up', Transfert: 'swap' };
 const icoCat = c => ICONES_CAT[c] || 'dots';
 function numeroCourt(c) { const n = String(c.numero || ''); const d = n.replace(/\D/g, ''); return d.length >= 2 ? '•• ' + d.slice(-2) : n; }
 
@@ -1278,6 +1405,7 @@ function infoMv(m) {
     case 'pret': return { ic: 'swap', tn: 't-acc', t: `Prêt ${N(m.de)} → ${N(m.vers)}`, s: m.note ? esc(m.note) : 'Prêt entre caisses', lib: `Prêt : ${N(m.de)} → ${N(m.vers)}` };
     case 'remb': return { ic: 'undo', tn: 't-acc', t: `${N(m.de)} rembourse ${N(m.vers)}`, s: 'Remboursement', lib: `${N(m.de)} rembourse ${N(m.vers)}` };
     case 'salaire': return { ic: 'cash', tn: 't-warn', t: 'Salaire', s: `${N(m.de)} → ${N(m.vers)}`, lib: `Salaire : ${N(m.de)} → ${N(m.vers)}` };
+    case 'apport': { const inv = m.categorie === 'Investissement'; return { ic: inv ? 'trend-up' : 'swap', tn: 't-pos', t: `${inv ? 'Investissement' : 'Transfert'} ${N(m.de)} → ${N(m.vers)}`, s: esc(m.note) + ' · sans dette', lib: `${inv ? 'Investissement' : 'Transfert sans dette'} : ${N(m.de)} → ${N(m.vers)}` }; }
     case 'ajust': return { ic: 'pen', tn: 't-warn', t: 'Écart expliqué', s: N(m.caisse) + (m.note ? ' · ' + esc(m.note) : ''), lib: 'Écart expliqué' };
   }
   return { ic: 'dots', tn: '', t: '?', s: '', lib: '?' };
@@ -1293,7 +1421,7 @@ function ligneMv(m, pour) {
   else if (m.type === 'ajust') { mt = FS(m.montant); cls = 'warn'; }
   else { mt = F(m.montant); cls = 'mute'; }
   const h = m.jour === L.jourISO(m.quand) ? L.heure(m.quand) : '';
-  const extra = [m.cloture && m.type !== 'ajust' ? 'oubli rattrapé' : '', m.source && m.source !== 'manuel' ? esc(m.source) : ''].filter(Boolean).join(' · ');
+  const extra = [m.pourSalon ? 'pour le salon' : '', m.cloture && m.type !== 'ajust' ? 'oubli rattrapé' : '', m.source && m.source !== 'manuel' ? esc(m.source) : ''].filter(Boolean).join(' · ');
   return `<button class="tx" data-act="mv" data-id="${esc(m.id)}"><span class="tx-ic ${i.tn}">${ICO(i.ic)}</span><span class="tx-b"><span class="tx-t">${i.t}</span><span class="tx-s">${i.s}${extra ? ' · ' + extra : ''}</span></span><span class="tx-mt num ${cls}">${mt}${h ? `<small>${h}</small>` : ''}</span></button>`;
 }
 function mvsTries(filtre) {
@@ -1303,7 +1431,7 @@ function mvsTries(filtre) {
 function tableDecomp(c, d, finLib) {
   const r = [['Solde de départ', F(c.soldeDepart), ''], ['Entrées', FS(d.entrees), 'pos'], ['Sorties', FS(-d.sorties), 'neg'],
     ['Prêts reçus', FS(d.pretsRecus), ''], ['Prêts donnés', FS(-d.pretsDonnes), ''], ['Remboursements reçus', FS(d.rembRecus), ''], ['Remboursements versés', FS(-d.rembVerses), ''],
-    ['Salaire reçu', FS(d.salaireRecu), ''], ['Salaire versé', FS(-d.salaireVerse), ''], ['Écarts expliqués', FS(d.ajustements), '']]
+    ['Salaire reçu', FS(d.salaireRecu), ''], ['Salaire versé', FS(-d.salaireVerse), ''], ['Transferts reçus (sans dette)', FS(d.apportsRecus), ''], ['Transferts donnés (sans dette)', FS(-d.apportsDonnes), ''], ['Écarts expliqués', FS(d.ajustements), '']]
     .filter((x, i) => i < 3 || x[1].replace(/[^0-9]/g, '') !== '0');
   return `<table class="tableau">${r.map(x => `<tr><td>${x[0]}</td><td class="num ${x[2]}">${x[1]}</td></tr>`).join('')}<tr class="fort"><td>${finLib || 'Solde attendu'}</td><td class="num">${F(c.soldeDepart + d.net)}</td></tr></table>`;
 }
@@ -1326,7 +1454,10 @@ VUES.accueil = () => {
   if (alerteChargement) h += alerte('err', 'alert', 'Problème de lecture', esc(alerteChargement));
   if (!S.departConfigure) h += alerte('', 'wallet', 'Bienvenue !', 'Commence par écrire le solde de départ et le numéro de chaque caisse.', `<button class="btn btn-pri sm" data-act="vue" data-vue="caisses">Saisir mes soldes de départ</button>`);
   if (sal.jourJ && !sal.verse && sal.total > 0) h += alerte('ok', 'cash', 'C’est le jour du salaire', `<span class="num">${F(sal.total)}</span> à verser vers ${N(S.reglages.caissePerso)} (prévu le ${esc(L.dateCourte(sal.date))}).`, `<button class="btn btn-pri sm" data-act="salaire-verser">Verser mon salaire</button>`);
+  const aConf = S.departConfigure ? act.filter(c => c.aConfigurer) : [];
+  if (aConf.length) h += alerte('', 'wallet', 'Nouvelle caisse : ' + aConf.map(c => esc(c.nom)).join(', '), 'Ton 2e point Orange Money a sa propre caisse. Écris son solde de départ.', `<button class="btn btn-pri sm" data-act="vue" data-vue="caisses">Saisir le solde de départ</button>`);
   if (L.rappelCloture(S, now)) h += alerte('at', 'moon', 'La clôture du soir n’est pas faite', `${cj.faites}/${cj.total} caisses comptées. Cinq minutes suffisent.`, `<button class="btn btn-pri sm" data-act="wiz">Faire la clôture</button>`);
+  else if (cj.complete || h0 >= S.reglages.heureCloture) h += alerte('ok', 'receipt', 'Le point du soir', 'Tes entrées, sorties, transferts et dettes de la journée, prêts à envoyer sur WhatsApp.', `<button class="btn btn-soft sm" data-act="point" data-jour="${auj()}">Voir le point du jour</button>`);
   // Patrimoine total
   const up = varTot > 0, down = varTot < 0;
   h += `<section class="hero" aria-label="Patrimoine total"><div class="hero-top"><span>Patrimoine total</span><span>${act.length} caisses</span></div>
@@ -1341,6 +1472,9 @@ VUES.accueil = () => {
       <div class="nom">${esc(c.nom)}</div><div class="mt num sens">${F(s)}</div>
       <div class="solde-bas">${s < 0 ? '<span class="neg-badge">Négatif</span>' : `<span class="var num sens">${v ? FS(v) + ' auj.' : 'Stable auj.'}</span>`}${sparkline(series[i], 56, 22, { couleur: 'rgba(255,255,255,.85)', ep: 1.6 })}</div></button>`;
   }).join('') + '</div>';
+  // Salon en construction
+  const sl = L.suiviSalon(S, now);
+  if (sl && !L.caisse(S, sl.caisse).archivee) h += section('Mon salon', `<button class="lien" data-act="vue" data-vue="salon">Détail${ICO('chev-r', 'xs')}</button>`) + blocSalonCourt(sl);
   // Clôture, dettes, écarts
   h += section('Clôture du jour') + `<div class="card">${blocClotureJour()}</div>`;
   const nbE = L.ecartsNonResolus(S).length, dts = L.dettes(S);
@@ -1354,8 +1488,8 @@ VUES.accueil = () => {
 };
 
 VUES.prets = () => {
-  let h = entete('Prêts entre caisses', ['plus', 'Réglages']) + `<p class="lead">Tout argent qui passe d’une caisse à une autre (sauf le salaire) est un prêt : il doit être remboursé.</p>
-    <button class="btn btn-pri" data-act="pret">${ICO('swap')}Nouveau prêt</button>`;
+  let h = entete('Prêts entre caisses', ['plus', 'Réglages']) + `<p class="lead">Un prêt doit être remboursé : la caisse qui reçoit doit l’argent à celle qui donne. Pour l’argent qui ne revient pas (investissement dans le salon), utilise « Transfert sans dette ».</p>
+    <div class="duo"><button class="btn btn-pri" data-act="pret">${ICO('swap')}Nouveau prêt</button><button class="btn btn-sec" data-act="apport">${ICO('trend-up')}Sans dette</button></div>`;
   h += section('Qui doit quoi à qui') + `<div class="card flush">${blocDettes()}</div>`;
   const ouverts = L.pretsOuverts(S);
   h += section('Prêts en cours') + `<div class="card flush liste">${ouverts.length ? ouverts.slice().reverse().map(x => {
@@ -1363,14 +1497,15 @@ VUES.prets = () => {
     return `<div class="ligne-r">${avatar(x.pret.vers, 'sm')}<div class="g">${N(x.pret.vers)} doit à ${N(x.pret.de)}<div class="aide" style="margin-top:2px">${esc(jourLib(x.pret.jour))}${x.pret.note ? ' · ' + esc(x.pret.note) : ''} · prêté ${F(x.pret.montant)}</div>
       <div class="barre-c" style="margin-top:6px"><i style="width:${Math.max(3, pc)}%;background:var(--pos)"></i><em>${pc} % remboursé</em></div></div><div class="d"><span class="aide" style="margin:0">reste</span><b class="num warn">${F(x.restant)}</b></div></div>`;
   }).join('') : `<div class="vide"><span class="v-ic n">${ICO('swap')}</span><div class="v-t">Aucun prêt en cours</div></div>`}</div>`;
-  const hist = mvsTries().filter(m => m.type === 'pret' || m.type === 'remb').slice(0, 30);
+  const hist = mvsTries().filter(m => m.type === 'pret' || m.type === 'remb' || m.type === 'apport').slice(0, 30);
   h += section('Historique') + `<div class="card flush liste">${hist.length ? hist.map(m => ligneMv(m)).join('') : `<div class="vide"><span class="v-ic n">${ICO('clock')}</span><div class="v-t">Rien pour l’instant</div></div>`}</div>`;
   return h;
 };
 
 VUES.cloture = () => {
-  let h = entete('Clôture du soir') + `<p class="lead">Caisse par caisse : tu tapes le solde réel lu sur ton compte, l’appli calcule l’écart avec le solde attendu.</p>
-    <div class="card">${blocClotureJour()}</div>`;
+  let h = entete('Clôture du soir', null, `<button class="icon-btn" data-act="point" aria-label="Point du soir">${ICO('receipt')}</button>`) + `<p class="lead">Caisse par caisse : tu tapes le solde réel lu sur ton compte, l’appli calcule l’écart avec le solde attendu.</p>
+    <div class="card">${blocClotureJour()}</div>
+    <button class="btn btn-soft" style="margin-top:var(--s3)" data-act="point">${ICO('receipt')}Voir le point du jour</button>`;
   const nbE = L.ecartsNonResolus(S).length;
   h += section('Écarts à expliquer', '', nbE ? ` <span class="badge">${nbE}</span>` : '') + `<div class="card flush">${blocEcarts()}</div>`;
   const cls = S.clotures.slice().sort((a, b) => b.quand - a.quand).slice(0, 60);
@@ -1434,6 +1569,7 @@ VUES.bilan = () => {
     <div class="kpi"><span>Sorties</span><b class="num">${FS(-t.sorties)}</b>${delta(t.sorties, tp.sorties, false)}<small>vs ${esc(pNom)}</small></div>
     <div class="kpi"><span>Résultat</span><b class="num ${res < 0 ? 'neg' : ''}">${FS(res)}</b>${delta(res, resp, true)}<small>entrées − sorties</small></div>
     <div class="kpi"><span>Salaire versé</span><b class="num">${F(t.salaire)}</b><span class="delta">vers ${N(S.reglages.caissePerso)}</span><small>Ajustements : <span class="num">${FS(t.ajustements)}</span></small></div></div>`;
+  if (S.reglages.caisseSalon && (t.investiSalon || tp.investiSalon)) h += `<button class="alerte" style="width:100%;text-align:left;margin:var(--s3) 0 0" data-act="vue" data-vue="salon" data-retour="bilan"><span class="a-ic">${ICO('cut')}</span><span class="a-b"><span class="a-t" style="display:block">Investi dans le salon : <span class="num">${F(t.investiSalon)}</span></span><span class="a-d" style="display:block">${esc(pNom)} : <span class="num">${F(tp.investiSalon)}</span> · voir le détail</span></span>${ICO('chev-r', 's')}</button>`;
   const avec = b.lignes.filter(l => l.entrees || l.sorties);
   h += `<div class="card" style="margin-top:var(--s3)"><div class="ch-t">Entrées et sorties par caisse</div><div class="ch-s">${esc(L.nomMois(UI.mois))}</div>
     ${avec.length ? graphBarres(b.lignes.filter(l => !l.archivee || l.entrees || l.sorties)) + '<div class="legende"><span><i style="background:var(--pos)"></i>Entrées</span><span><i style="background:var(--neg)"></i>Sorties</span></div>'
@@ -1453,20 +1589,23 @@ VUES.bilan = () => {
     const estPerso = l.caisse === S.reglages.caissePerso;
     const rows = [['Solde au début du mois', F(l.soldeDebut), '', 1], ['Entrées', FS(l.entrees), 'pos'], ['Sorties', FS(-l.sorties), 'neg'], ['Prêts reçus', FS(l.pretsRecus), ''], ['Prêts donnés', FS(-l.pretsDonnes), ''],
       ['Remboursements reçus', FS(l.rembRecus), ''], ['Remboursements versés', FS(-l.rembVerses), ''], [estPerso ? 'Salaire reçu' : 'Salaire versé', FS(l.salaireRecu - l.salaireVerse), ''],
+      ['Transferts reçus (sans dette)', FS(l.apportsRecus), ''], ['Transferts donnés (sans dette)', FS(-l.apportsDonnes), ''],
       ['Écarts expliqués (ajustements)', FS(l.ajustements), 'warn'], [courant ? 'Solde attendu aujourd’hui' : 'Solde en fin de mois', F(l.soldeFin), '', 1]];
     return `<details class="caisse-d"><summary>${avatar(l.caisse)}<span class="g"><b>${esc(l.nom)}${l.archivee ? ' <span class="pill p-gr">archivée</span>' : ''}</b><span class="num">${F(l.soldeDebut)} → ${F(l.soldeFin)}</span></span>${ICO('chev-r')}</summary>
       <div class="corps"><table class="tableau">${rows.map(r => `<tr class="${r[3] ? 'fort' : ''}"><td>${r[0]}</td><td class="num ${r[1].replace(/[^0-9]/g, '') === '0' && !r[3] ? 'z' : r[2]}">${r[1]}</td></tr>`).join('')}</table>
       <p>Clôtures : ${l.clotures} · jours avec écart : ${l.joursAvecEcart}${l.ecartsApparus ? ' · écarts apparus : <b class="num ' + (l.ecartsApparus < 0 ? 'neg' : 'pos') + '">' + FS(l.ecartsApparus) + '</b>' : ''}</p></div></details>`;
-  }).join('') + '</div><p class="pied">Les prêts et le salaire passent d’une caisse à l’autre : ils ne changent pas le total.</p>';
+  }).join('') + '</div><p class="pied">Les prêts, les transferts et le salaire passent d’une caisse à l’autre : ils ne changent pas le total.</p>';
   return h;
 };
 
 VUES.plus = () => {
   const bk = L.rappelSauvegarde(S), es = L.etatSalaire(S), nbD = L.dettes(S).length;
-  const rl = (vue, ic, t, s, extra) => `<button class="rl" data-act="vue" data-vue="${vue}"><span class="r-ic">${ICO(ic)}</span><span class="g"><span class="t">${t}</span><span class="s">${s}</span></span>${extra || ''}${ICO('chev-r')}</button>`;
+  const rl = (vue, ic, t, s, extra) => `<button class="rl" data-act="vue" data-vue="${vue}" data-retour="plus"><span class="r-ic">${ICO(ic)}</span><span class="g"><span class="t">${t}</span><span class="s">${s}</span></span>${extra || ''}${ICO('chev-r')}</button>`;
   return entete('Réglages') + `<div class="groupe">
     ${rl('prets', 'swap', 'Prêts entre caisses', nbD ? nbD + ' dette' + (nbD > 1 ? 's' : '') + ' en cours' : 'Aucune dette', nbD ? `<span class="badge n">${nbD}</span>` : '')}
     ${rl('caisses', 'wallet', 'Mes caisses', 'Noms, numéros, soldes de départ')}
+    ${S.reglages.caisseSalon ? rl('salon', 'cut', 'Mon salon', 'Investi : <span class="num">' + F(L.suiviSalon(S).investi) + '</span>' + (S.reglages.budgetSalon ? ' sur ' + F(S.reglages.budgetSalon) : '')) : ''}
+    ${rl('point', 'receipt', 'Point du soir', 'Résumé de la journée à partager')}
     ${rl('salaire', 'cash', 'Mon salaire', `<span class="num">${F(es.total)}</span> le ${S.reglages.salaire.jour} du mois`)}</div>
     <div class="g-titre">Données</div><div class="groupe">
     ${rl('sauvegarde', 'shield', 'Sauvegarde', bk.jamais ? 'Jamais faite' : 'Il y a ' + bk.jours + ' jour' + (bk.jours > 1 ? 's' : ''), bk.du ? '<span class="pill p-at">à faire</span>' : '')}
@@ -1506,7 +1645,8 @@ VUES.caisses = () => {
   h += act.map(c => `<div class="card c-form" style="${gvars(c.id)};margin-bottom:var(--s3)"><div class="c-tete"><span class="solde-ic">${ICO(icoCaisse(c.id))}</span><b>${esc(c.nom)}</b><span class="num">${F(L.soldeAttendu(S, c.id))}</span></div><div class="c-corps">
     <label class="form-l" for="cn-${esc(c.id)}">Nom</label><input class="field" id="cn-${esc(c.id)}" data-caisse="${esc(c.id)}" data-champ="nom" maxlength="40" value="${esc(c.nom)}">
     <label class="form-l" for="cu-${esc(c.id)}">Numéro ou compte</label><input class="field" id="cu-${esc(c.id)}" data-caisse="${esc(c.id)}" data-champ="numero" maxlength="60" placeholder="ex : 07 xx xx xx xx" value="${esc(c.numero)}">
-    <label class="form-l" for="cs-${esc(c.id)}">Solde de départ (F)</label><input class="field num" id="cs-${esc(c.id)}" data-caisse="${esc(c.id)}" data-champ="soldeDepart" inputmode="numeric" value="${esc(L.grouper(c.soldeDepart))}"></div>
+    <label class="form-l" for="cs-${esc(c.id)}">Solde de départ (F)${c.aConfigurer ? ' <span class="pill p-at">à saisir</span>' : ''}</label><input class="field num" id="cs-${esc(c.id)}" data-caisse="${esc(c.id)}" data-champ="soldeDepart" inputmode="numeric" value="${esc(L.grouper(c.soldeDepart))}">
+    <label class="bascule" style="background:var(--surface-2)"><input type="checkbox" data-caisse="${esc(c.id)}" data-champ="pdv" ${c.pdv ? 'checked' : ''}><span>Point de vente Orange Money : le soir, je compte <b>l’électronique</b> et <b>les espèces</b> séparément</span></label></div>
     ${c.id !== S.reglages.caissePerso ? `<div class="c-pied"><span>Plus utilisée ?</span><button class="btn btn-ghost sm" data-act="archiver" data-id="${esc(c.id)}">Archiver</button></div>` : ''}</div>`).join('');
   h += `<button class="btn btn-pri" data-act="caisses-enreg">${ICO('check')}Enregistrer les caisses</button>`;
   h += section('Caisse qui reçoit le salaire') + `<div class="card"><select class="field" id="perso-sel" aria-label="Caisse qui reçoit le salaire">${act.map(c => `<option value="${esc(c.id)}" ${c.id === S.reglages.caissePerso ? 'selected' : ''}>${esc(c.nom)}</option>`).join('')}</select></div>`;
@@ -1556,6 +1696,74 @@ VUES.rappels = () => {
     <button class="btn btn-soft" data-act="agenda">${ICO('cal')}Ajouter à mon agenda</button></div>`;
 };
 
+/* ── Salon en construction ── */
+function barreBudget(sl) {
+  if (!sl.budget) return '';
+  const pc = Math.min(100, Math.round(sl.investi / sl.budget * 100)), depasse = sl.investi > sl.budget;
+  return `<div class="barre-c" style="margin-top:var(--s3)"><i style="width:${Math.max(3, pc)}%;background:${depasse ? 'var(--neg)' : 'var(--pos)'}"></i><em class="num">${pc} %</em></div>
+    <div class="aide" style="margin-top:4px">${depasse ? `Budget dépassé de <b class="num neg">${F(-sl.resteBudget)}</b>` : `Budget ${F(sl.budget)} · reste <b class="num">${F(sl.resteBudget)}</b>`}</div>`;
+}
+function blocSalonCourt(sl) {
+  return `<button class="card" style="display:block;width:100%;text-align:left" data-act="vue" data-vue="salon" data-retour="accueil">
+    <div style="display:flex;align-items:center;gap:var(--s3)">${avatar(sl.caisse)}<div style="flex:1;min-width:0"><div class="aide" style="margin:0">Investi au total</div><b class="num sens" style="font-size:var(--t20)">${F(sl.investi)}</b></div>
+    <div style="text-align:right"><div class="aide" style="margin:0">ce mois-ci</div><b class="num sens">${F(sl.moisCourant)}</b></div></div>${barreBudget(sl)}</button>`;
+}
+function listeBarres(items, lib, total) {
+  if (!items.length) return `<div class="vide"><span class="v-ic n">${ICO('chart')}</span><div class="v-d">Rien pour l’instant.</div></div>`;
+  const mx = Math.max(1, ...items.map(x => x.montant));
+  return `<div class="cmp" style="grid-template-columns:96px 1fr">${items.map((x, i) => `<span class="k" style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${lib(x)}</span><div class="barre-c"><i style="width:${Math.max(3, Math.round(x.montant / mx * 100))}%;background:${PALETTE[i % PALETTE.length]}"></i><em class="num">${F(x.montant)}${total ? ' · ' + Math.round(x.montant / total * 100) + ' %' : ''}</em></div>`).join('')}</div>`;
+}
+VUES.salon = () => {
+  const sl = L.suiviSalon(S), retour = UI.retour && VUES[UI.retour] && UI.retour !== 'salon' ? UI.retour : 'plus';
+  const libRetour = { accueil: 'Accueil', bilan: 'Bilan', plus: 'Réglages' }[retour] || 'Retour';
+  let h = entete('Mon salon', [retour, libRetour]);
+  if (!sl) return h + `<div class="card"><p class="aide" style="margin:0 0 var(--s3)">Choisis la caisse qui sert pour le salon.</p>${reglagesSalon()}</div>`;
+  const id = sl.caisse;
+  h += `<div class="c-hero" style="${gvars(id)}"><div class="solde-top"><span class="solde-ic">${ICO(icoCaisse(id))}</span><span class="no">Investissement définitif</span></div>
+    <div class="mt num sens">${grand(sl.investi)}</div><div class="l">investis dans le salon depuis le début</div>
+    ${sl.budget ? `<div class="barre-c" style="margin-top:var(--s3)"><i style="width:${Math.max(3, Math.min(100, Math.round(sl.investi / sl.budget * 100)))}%;background:#fff"></i><em class="num" style="color:#fff">${Math.round(sl.investi / sl.budget * 100)} % du budget de ${F(sl.budget)}</em></div>` : ''}</div>`;
+  h += `<div class="kpis" style="margin-top:var(--s3)">
+    <div class="kpi"><span>Déjà dépensé</span><b class="num">${F(sl.depense)}</b><small>travaux, matériel, loyer…</small></div>
+    <div class="kpi"><span>Reste en caisse ${N(id)}</span><b class="num ${sl.solde < 0 ? 'neg' : ''}">${F(sl.solde)}</b><small>pas encore dépensé</small></div>
+    <div class="kpi"><span>Ce mois-ci</span><b class="num">${F(sl.moisCourant)}</b><small>investi en ${esc(L.nomMoisSeul(L.moisISO(Date.now())))}</small></div>
+    <div class="kpi"><span>${sl.budget ? (sl.resteBudget < 0 ? 'Budget dépassé' : 'Reste du budget') : 'Budget'}</span><b class="num ${sl.resteBudget < 0 ? 'neg' : ''}">${sl.budget ? F(Math.abs(sl.resteBudget)) : '—'}</b><small>${sl.budget ? 'sur ' + F(sl.budget) : 'à fixer plus bas'}</small></div></div>`;
+  h += `<div class="duo" style="margin-top:var(--s3)"><button class="btn btn-pri" data-act="apport" data-vers="${esc(id)}">${ICO('trend-up')}Investir</button><button class="btn btn-sec" data-act="saisie" data-type="sortie" data-caisse="${esc(id)}">${ICO('out')}Dépense</button></div>
+    <p class="aide" style="text-align:center">Tu paies une dépense du salon avec une autre caisse ? Fais une Sortie et coche « Pour le salon ».</p>`;
+  h += section('D’où vient l’argent') + `<div class="card">${listeBarres(sl.parSource, x => N(x.cle), sl.investi)}</div>`;
+  h += section('Dépenses par poste') + `<div class="card">${listeBarres(sl.parPoste, x => esc(x.cle), sl.depense)}</div>`;
+  const mvs = mvsTries().filter(m => (m.type === 'apport' && m.vers === id) || m.caisse === id || m.pourSalon || (m.de === id || m.vers === id)).slice(0, 40);
+  h += section('Historique du salon') + `<div class="card flush liste">${mvs.length ? mvs.map(m => ligneMv(m)).join('') : `<div class="vide"><span class="v-ic n">${ICO('cut')}</span><div><div class="v-t">Rien encore</div><div class="v-d">Touche « Investir » quand tu mets de l’argent dans le salon.</div></div></div>`}</div>`;
+  h += section('Réglages du salon') + `<div class="card">${reglagesSalon()}</div>`;
+  return h;
+};
+function reglagesSalon() {
+  const act = L.caissesActives(S);
+  return `<label class="form-l" for="salon-sel">Caisse du salon</label><select class="field" id="salon-sel">${act.map(c => `<option value="${esc(c.id)}" ${c.id === S.reglages.caisseSalon ? 'selected' : ''}>${esc(c.nom)}</option>`).join('')}</select>
+    <label class="form-l" for="salon-budget">Budget total prévu (F)</label><input class="field num" id="salon-budget" inputmode="numeric" placeholder="ex : 3 000 000 (0 = pas de budget)" value="${S.reglages.budgetSalon ? esc(L.grouper(S.reglages.budgetSalon)) : ''}">
+    <button class="btn btn-soft" style="margin-top:var(--s4)" data-act="salon-enreg">${ICO('check')}Enregistrer</button>`;
+}
+
+/* ── Point du soir ── */
+VUES.point = () => {
+  const j = UI.jourPoint || auj(), r = L.resumeJour(S, j), estAuj = j === auj();
+  let h = entete('Point du soir', [UI.retour && VUES[UI.retour] && UI.retour !== 'point' ? UI.retour : 'accueil', 'Retour']);
+  h += `<div class="mois-nav"><button class="icon-btn" data-act="point-jour" data-n="-1" aria-label="Jour précédent">${ICO('chev-l')}</button><b>${esc(jourLib(j))}${estAuj ? '' : ''}</b><button class="icon-btn" data-act="point-jour" data-n="1" aria-label="Jour suivant" ${estAuj ? 'disabled' : ''}>${ICO('chev-r')}</button></div>`;
+  const totA = r.caisses.reduce((s, x) => s + x.avant, 0), totP = r.caisses.reduce((s, x) => s + x.apres, 0);
+  h += `<div class="kpis">
+    <div class="kpi"><span>Entrées</span><b class="num pos sens">${FS(r.entrees)}</b><small>${r.listeEntrees.length} opération${r.listeEntrees.length > 1 ? 's' : ''}</small></div>
+    <div class="kpi"><span>Sorties</span><b class="num sens">${FS(-r.sorties)}</b><small>${r.listeSorties.length} opération${r.listeSorties.length > 1 ? 's' : ''}</small></div></div>`;
+  h += section('Soldes de la journée') + `<div class="card flush liste">${r.caisses.map(x => `<div class="ligne-r">${avatar(x.caisse, 'sm')}<span class="g">${N(x.caisse)}<div class="aide num" style="margin-top:2px">${F(x.avant)} → ${F(x.apres)}</div></span><span class="d"><b class="num sens ${x.variation < 0 ? 'neg' : x.variation > 0 ? 'pos' : 'mute'}">${x.variation ? FS(x.variation) : '='}</b>${x.cloture ? (x.ecart ? `<span class="pill p-at">écart ${FS(x.ecart)}</span>` : `<span class="pill p-ok">${ICO('check')}compté</span>`) : '<span class="pill p-gr">pas compté</span>'}</span></div>`).join('')}
+    <div class="ligne-r" style="background:var(--surface-2)"><span class="g">Total</span><span class="d"><b class="num sens">${F(totP)}</b><span class="aide num" style="margin:0">${totP - totA ? FS(totP - totA) : 'stable'}</span></span></div></div>`;
+  h += section('Sorties', '', r.listeSorties.length ? ` <span class="badge n">${r.listeSorties.length}</span>` : '') + `<div class="card flush liste">${r.listeSorties.length ? r.listeSorties.map(m => ligneMv(m)).join('') : `<div class="vide"><span class="v-ic">${ICO('check')}</span><div class="v-t">Aucune sortie</div></div>`}</div>`;
+  if (r.listeEntrees.length) h += section('Entrées') + `<div class="card flush liste">${r.listeEntrees.map(m => ligneMv(m)).join('')}</div>`;
+  h += section('Entre caisses') + `<div class="card flush liste">${r.transferts.length ? r.transferts.map(m => ligneMv(m)).join('') : `<div class="vide"><span class="v-ic n">${ICO('swap')}</span><div class="v-t">Aucun mouvement entre caisses</div></div>`}</div>`;
+  h += section('Dettes en cours') + `<div class="card flush">${blocDettes()}</div>`;
+  h += `<div class="pile" style="margin-top:var(--s5)"><button class="btn btn-pri" data-act="point-partager">${ICO('share')}Envoyer le point (WhatsApp…)</button>
+    ${estAuj && !L.clotureDuJour(S).complete ? `<button class="btn btn-sec" data-act="wiz">${ICO('moon')}Faire la clôture</button>` : ''}
+    <button class="btn btn-ghost" data-act="agenda">${ICO('bell')}Me rappeler le point chaque soir à ${S.reglages.heureCloture} h</button></div>`;
+  return h;
+};
+
 /* ── FEUILLES (bottom sheets) ── */
 const FEUILLES = {}, APRES = {};
 function ouvrir(desc) {
@@ -1597,8 +1805,8 @@ const TOUCHES = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '000', '0', 'del']
 function pave(id) { return `<div class="pave" data-pave="${id}">${TOUCHES.map(k => `<button class="touche" data-act="kp" data-for="${id}" data-k="${k}" aria-label="${k === 'del' ? 'Effacer' : k}">${k === 'del' ? ICO('del') : k}</button>`).join('')}</div>`; }
 function montantHTML(id) { return `<div class="montant num" id="${id}" aria-live="polite" aria-label="Montant"></div>`; }
 function majMontant(id) {
-  const el = document.getElementById(id); if (!el) return;
-  const v = UI.mt[id] || '', n = Number(v || 0);
+  const el = document.getElementById(id), v = UI.mt[id] || '', n = Number(v || 0);
+  if (!el) { if (CTX[id]) CTX[id](v ? n : null); return; }
   el.className = 'montant num' + (v ? '' : ' vide') + (v.length > 9 ? ' l2' : v.length > 7 ? ' l1' : '');
   el.innerHTML = `<span class="montant-v">${L.grouper(n)}</span><span class="montant-c">F</span>`;
   if (CTX[id]) CTX[id](v ? n : null);
@@ -1617,6 +1825,14 @@ CTX['s-montant'] = n => {
   el.innerHTML = n ? `Solde ${N(s.caisse)} après : <b class="num">${F(sol + (s.type === 'entree' ? n : -n))}</b>` : `Solde ${N(s.caisse)} : <b class="num">${F(sol)}</b>`;
 };
 CTX['p-montant'] = () => phrasePret();
+// Point Orange Money : électronique + espèces → total compté
+function majParts() {
+  const u = UI.mt['w-uv'] || '', e = UI.mt['w-esp'] || '';
+  [['w-uv', u], ['w-esp', e]].forEach(([k, v]) => { const b = document.getElementById(k + '-v'); if (b) b.textContent = v ? F(Number(v)) : '…'; });
+  UI.mt['w-reel'] = u || e ? String(Number(u || 0) + Number(e || 0)) : '';
+  majMontant('w-reel');
+}
+CTX['w-uv'] = CTX['w-esp'] = () => majParts();
 CTX['w-reel'] = n => {
   const el = $('#w-ctx'), w = UI.wiz; if (!el || !w) return;
   if (n == null) { el.innerHTML = 'Tape le solde affiché sur ton compte ou compte les billets'; return; }
@@ -1631,18 +1847,27 @@ FEUILLES.nouveau = () => {
   return tete('Nouvelle opération') + `<div class="tuiles">
     ${tuile('saisie', 'entree', 'in', 't-pos', 'Entrée', 'Vente, commission, dépôt')}
     ${tuile('saisie', 'sortie', 'out', 't-neg', 'Sortie', 'Achat, retrait, frais')}
-    ${tuile('pret', '', 'swap', 't-acc', 'Prêt entre caisses', 'Une caisse avance à une autre')}
-    ${tuile('salaire-feuille', '', 'cash', 't-warn', 'Salaire', es.verse ? 'Déjà versé ce mois-ci' : F(es.total) + ' vers ' + N(S.reglages.caissePerso))}</div>`;
+    ${tuile('pret', '', 'swap', 't-acc', 'Prêt entre caisses', 'À rembourser : crée une dette')}
+    ${tuile('apport', '', 'trend-up', 't-pos', 'Sans dette', S.reglages.caisseSalon ? 'Investir dans le salon…' : 'L’argent ne revient pas')}
+    ${tuile('salaire-feuille', '', 'cash', 't-warn', 'Salaire', es.verse ? 'Déjà versé ce mois-ci' : F(es.total) + ' vers ' + N(S.reglages.caissePerso))}
+    ${tuile('point', '', 'receipt', '', 'Point du jour', 'Résumé à partager')}</div>`;
 };
 
 // Saisie Entrée / Sortie
-function catsHTML(s) { return L.CATEGORIES[s.type].map(c => `<button class="puce ${s.categorie === c ? 'on' : ''}" data-act="s-cat" data-val="${esc(c)}">${ICO(icoCat(c))}${esc(c)}</button>`).join(''); }
+const pourLeSalon = s => s.type === 'sortie' && !!S.reglages.caisseSalon && (s.caisse === S.reglages.caisseSalon || s.pourSalon);
+const listeCats = s => pourLeSalon(s) ? L.CATEGORIES.salon : L.CATEGORIES[s.type];
+function catsHTML(s) { if (!listeCats(s).includes(s.categorie)) s.categorie = listeCats(s)[0]; return listeCats(s).map(c => `<button class="puce ${s.categorie === c ? 'on' : ''}" data-act="s-cat" data-val="${esc(c)}">${ICO(icoCat(c))}${esc(c)}</button>`).join(''); }
 function oubliHTML(s) {
   const e = L.ecartsNonResolus(S).find(x => x.caisse === s.caisse);
   if (!e) return '';
   return `<label class="bascule"><input type="checkbox" id="s-oubli" data-cl="${esc(e.cloture.id)}" ${s.oublieDe === e.cloture.id ? 'checked' : ''}><span>C’est l’opération oubliée de l’écart du ${esc(jourLib(e.cloture.jour).toLowerCase())} (<b class="num">${FS(e.ecart)}</b>) : elle sera comptée avant ce comptage.</span></label>`;
 }
 const titreSaisie = s => s.type === 'entree' ? 'Nouvelle entrée' : 'Nouvelle sortie';
+function salonHTML(s) {
+  const sal = S.reglages.caisseSalon;
+  if (s.type !== 'sortie' || !sal || s.caisse === sal || !L.caisse(S, sal) || L.caisse(S, sal).archivee) return '';
+  return `<label class="bascule" style="background:var(--accent-soft)"><input type="checkbox" id="s-salon" ${s.pourSalon ? 'checked' : ''}><span><b>Pour le salon</b> : dépense payée depuis ${N(s.caisse)}, comptée comme investissement dans le salon</span></label>`;
+}
 FEUILLES.saisie = () => {
   const s = UI.saisie, act = L.caissesActives(S), hier = L.jourISO(Date.now() - L.JOUR_MS);
   return `<div class="sh-head"><button class="icon-btn" data-act="nouveau" aria-label="Retour">${ICO('chev-l')}</button><h3 id="s-titre">${titreSaisie(s)}</h3>${X}</div>
@@ -1653,6 +1878,7 @@ FEUILLES.saisie = () => {
     <div class="chips" id="s-jours" role="group" aria-label="Date" style="margin-top:var(--s2)"><button class="puce ${s.jour === auj() ? 'on' : ''}" data-act="s-jour" data-val="${auj()}">Aujourd’hui</button><button class="puce ${s.jour === hier ? 'on' : ''}" data-act="s-jour" data-val="${hier}">Hier</button>
     <label class="puce date-p ${s.jour !== auj() && s.jour !== hier ? 'on' : ''}" id="s-date-l">${ICO('cal')}<span id="s-date-t">${s.jour !== auj() && s.jour !== hier ? esc(L.dateCourte(s.jour)) : 'Autre date'}</span><input type="date" id="s-date" aria-label="Autre date" max="${auj()}" value="${s.jour !== auj() && s.jour !== hier ? esc(s.jour) : ''}"></label></div>
     <input class="field" id="s-note" style="margin-top:var(--s2)" maxlength="200" placeholder="Note (facultatif) : client, objet…" value="${esc(s.note)}" enterkeyhint="done">
+    <div id="s-salon-zone">${salonHTML(s)}</div>
     <div id="s-oubli-zone">${oubliHTML(s)}</div>
     ${pave('s-montant')}
     <button class="btn btn-pri" data-act="s-ok" id="s-ok">${s.type === 'entree' ? 'Enregistrer l’entrée' : 'Enregistrer la sortie'}</button>`;
@@ -1662,23 +1888,30 @@ APRES.saisie = () => majMontant('s-montant');
 // Prêt
 function phrasePret() {
   const p = UI.pret, el = $('#p-phrase'); if (!el || !p) return;
-  const n = Number(UI.mt['p-montant'] || 0);
-  el.innerHTML = p.de && p.vers && p.de !== p.vers
-    ? `<div class="flux" style="--a:${teinte(p.de)[0]};--b:${teinte(p.vers)[0]}"><div class="flux-p">${avatar(p.de)}<span class="flux-n">${N(p.de)}</span></div><div class="flux-fl"><b class="flux-mt num">${n ? F(n) : '…'}</b><span class="flux-l"></span></div><div class="flux-p">${avatar(p.vers)}<span class="flux-n">${N(p.vers)}</span></div></div>
-       <p class="phrase"><b>${N(p.de)}</b> prête <b class="num">${n ? F(n) : '…'}</b> à <b>${N(p.vers)}</b></p>`
-    : '<p class="phrase neg">Choisis deux caisses différentes</p>';
+  const n = Number(UI.mt['p-montant'] || 0), mt = `<b class="num">${n ? F(n) : '…'}</b>`;
+  if (!(p.de && p.vers && p.de !== p.vers)) { el.innerHTML = '<p class="phrase neg">Choisis deux caisses différentes</p>'; return; }
+  const sd = L.soldeAttendu(S, p.de), sv = L.soldeAttendu(S, p.vers);
+  const phrase = p.mode === 'apport'
+    ? (p.vers === S.reglages.caisseSalon ? `<b>${N(p.de)}</b> investit ${mt} dans <b>${N(p.vers)}</b> · personne ne doit rien` : `<b>${N(p.de)}</b> donne ${mt} à <b>${N(p.vers)}</b> · sans dette`)
+    : `<b>${N(p.de)}</b> prête ${mt} à <b>${N(p.vers)}</b> · <b>${N(p.vers)}</b> devra rembourser`;
+  el.innerHTML = `<div class="flux" style="--a:${teinte(p.de)[0]};--b:${teinte(p.vers)[0]}"><div class="flux-p">${avatar(p.de)}<span class="flux-n">${N(p.de)}</span></div><div class="flux-fl"><b class="flux-mt num">${n ? F(n) : '…'}</b><span class="flux-l"></span></div><div class="flux-p">${avatar(p.vers)}<span class="flux-n">${N(p.vers)}</span></div></div>
+    <p class="phrase">${phrase}</p>
+    <p class="ctx" style="margin:0 0 var(--s3)">Après : ${N(p.de)} <b class="num ${sd - n < 0 ? 'neg' : ''}">${F(sd - n)}</b> · ${N(p.vers)} <b class="num">${F(sv + n)}</b></p>`;
 }
 FEUILLES.pret = () => {
   const p = UI.pret, act = L.caissesActives(S);
   const puces = (k, a) => act.map(c => `<button class="puce caisse ${p[k] === c.id ? 'on' : ''}" style="${gvars(c.id)}" data-act="${a}" data-id="${esc(c.id)}"><span class="pt"></span>${esc(c.nom)}</button>`).join('');
-  return tete('Prêt entre caisses', 'nouveau') + `<div id="p-phrase"></div>
-    <div class="lbl" style="margin-top:0">Qui prête ?</div><div class="chips" id="p-de">${puces('de', 'p-de')}</div>
-    <div class="lbl">À qui ?</div><div class="chips" id="p-vers">${puces('vers', 'p-vers')}</div>
+  const ap = p.mode === 'apport';
+  return tete(ap ? 'Transfert sans dette' : 'Prêt entre caisses', 'nouveau') + `<div class="seg2" role="group" aria-label="Type de transfert" style="margin-bottom:var(--s3)">
+      <button class="${ap ? '' : 'on'}" data-act="p-mode" data-val="pret" aria-pressed="${!ap}">${ICO('swap', 's')}Prêt (à rembourser)</button><button class="${ap ? 'on' : ''}" data-act="p-mode" data-val="apport" aria-pressed="${ap}">${ICO('trend-up', 's')}Sans dette</button></div>
+    <div id="p-phrase"></div>
+    <div class="lbl" style="margin-top:0">${ap ? 'D’où vient l’argent ?' : 'Qui prête ?'}</div><div class="chips" id="p-de">${puces('de', 'p-de')}</div>
+    <div class="lbl">${ap ? 'Où va-t-il ?' : 'À qui ?'}</div><div class="chips" id="p-vers">${puces('vers', 'p-vers')}</div>
     ${montantHTML('p-montant')}
-    <input class="field" id="p-note" maxlength="200" placeholder="Pour quoi ? (facultatif)" value="${esc(p.note || '')}">
+    <input class="field" id="p-note" maxlength="200" placeholder="Motif (obligatoire) : ${ap ? 'carrelage, loyer du salon…' : 'recharge UV, dépannage…'}" value="${esc(p.note || '')}" enterkeyhint="done">
     ${pave('p-montant')}
-    <button class="btn btn-pri" data-act="p-ok">Enregistrer le prêt</button>
-    <p class="aide" style="text-align:center">Le salaire n’est pas un prêt : il a son propre bouton.</p>`;
+    <button class="btn btn-pri" data-act="p-ok">${ap ? 'Enregistrer le transfert' : 'Enregistrer le prêt'}</button>
+    <p class="aide" style="text-align:center">${ap ? 'L’argent change de caisse, personne ne doit rien à personne.' : 'Le salaire n’est pas un prêt : il a son propre bouton.'}</p>`;
 };
 APRES.pret = () => { majMontant('p-montant'); phrasePret(); };
 
@@ -1707,9 +1940,10 @@ APRES.remb = () => majMontant('r-montant');
 FEUILLES.mv = f => {
   const m = S.mouvements.find(x => x.id === f.id);
   if (!m) return tete('Introuvable');
-  const i = infoMv(m), ty = { entree: 'Entrée', sortie: 'Sortie', pret: 'Prêt entre caisses', remb: 'Remboursement', salaire: 'Salaire', ajust: 'Ajustement (écart expliqué)' }[m.type];
-  const rows = [['Type', ty], m.caisse ? ['Caisse', N(m.caisse)] : ['De → vers', `${N(m.de)} → ${N(m.vers)}`], m.categorie && m.type !== 'pret' ? ['Catégorie', esc(m.categorie)] : null,
+  const i = infoMv(m), ty = { entree: 'Entrée', sortie: 'Sortie', pret: 'Prêt entre caisses', remb: 'Remboursement', salaire: 'Salaire', ajust: 'Ajustement (écart expliqué)', apport: m.categorie === 'Investissement' ? 'Investissement (sans dette)' : 'Transfert sans dette' }[m.type];
+  const rows = [['Type', ty], m.caisse ? ['Caisse', N(m.caisse)] : ['De → vers', `${N(m.de)} → ${N(m.vers)}`], m.categorie && m.type !== 'pret' && m.type !== 'apport' ? ['Catégorie', esc(m.categorie)] : null,
     ['Date', esc(jourLib(m.jour)) + (m.jour === L.jourISO(m.quand) ? ' à ' + L.heure(m.quand) : '')], m.note ? ['Note', esc(m.note)] : null,
+    m.pourSalon ? ['Salon', 'Dépense pour le salon (investissement)'] : null,
     m.cloture && m.type !== 'ajust' ? ['Rattachée', 'Opération oubliée d’une clôture'] : null, m.source && m.source !== 'manuel' ? ['Source', esc(m.source)] : null].filter(Boolean);
   const sg = m.type === 'entree' ? m.montant : m.type === 'sortie' ? -m.montant : m.type === 'ajust' ? m.montant : null;
   return tete('Opération') + `<div style="text-align:center;padding:var(--s2) 0 var(--s4)"><span class="tx-ic ${i.tn}" style="width:56px;height:56px;margin:0 auto var(--s3)">${ICO(i.ic)}</span><div class="res-mt num ${sg > 0 ? 'pos' : ''}" style="margin:0">${sg == null ? grand(m.montant) : grand(sg, true)}</div><div class="aide">${i.t}</div></div>
@@ -1729,7 +1963,7 @@ function ecartHTML(cl, enWiz) {
   h += `<div class="res ${genre}"><span class="res-ic">${ICO(e === 0 ? 'check' : 'alert')}</span><div class="res-lbl">${lib}</div>
     <div class="res-mt num">${e === 0 ? (cl.ecartInitial ? `<s style="opacity:.55">${FS(cl.ecartInitial)}</s>` : '0 F') : FS(e)}</div>${pillStatut(st)}
     ${deja ? `<p class="aide">${deja}</p>` : ''}<p class="aide">${esc(jourLib(cl.jour))} à ${L.heure(cl.quand)}</p></div>
-    <div class="duo" style="margin-top:var(--s3)"><div class="boite"><span>Attendu</span><b class="num">${F(cl.attendu)}</b></div><div class="boite"><span>Réel compté</span><b class="num">${F(cl.reel)}</b></div></div>`;
+    <div class="duo" style="margin-top:var(--s3)"><div class="boite"><span>Attendu</span><b class="num">${F(cl.attendu)}</b></div><div class="boite"><span>Réel compté</span><b class="num">${F(cl.reel)}</b>${cl.detail ? `<span class="num">élec. ${F(cl.detail.electronique)} · esp. ${F(cl.detail.especes)}</span>` : ''}</div></div>`;
   if (cl.notes.length) h += `<div class="lbl">Explications notées</div><div class="card flush liste" style="box-shadow:none">${cl.notes.map(n => `<div class="note-l"><div class="t">${esc(n.texte)}</div><div class="s">${esc(jourLib(L.jourISO(n.quand)))} ${L.heure(n.quand)}${n.ajustement != null ? ' · ajustement ' + FS(n.ajustement) : ''}</div></div>`).join('')}</div>`;
   if (st === 'a_expliquer') {
     const type = e < 0 ? 'sortie' : 'entree';
@@ -1780,23 +2014,25 @@ FEUILLES.wiz = () => {
       <div class="card flush liste" style="box-shadow:none">${res}</div>
       ${faites ? `<div class="duo" style="margin-top:var(--s3)"><div class="boite"><span>Total attendu</span><b class="num">${F(tA)}</b></div><div class="boite"><span>Total compté</span><b class="num ${tR - tA < 0 ? 'neg' : ''}">${F(tR)}</b></div></div>` : ''}
       <p class="aide" style="margin:var(--s4) 2px">${reste ? reste + ' écart' + (reste > 1 ? 's restent' : ' reste') + ' « à expliquer ». Tu peux les régler plus tard depuis l’accueil : ils ne disparaissent pas.' : 'Tout est juste. Bonne soirée !'}</p>
-      <button class="btn btn-pri" data-act="fermer">Terminer</button></div>`;
+      <div class="pile"><button class="btn btn-pri" data-act="point">${ICO('receipt')}Voir le point du jour</button><button class="btn btn-sec" data-act="fermer">Terminer</button></div></div>`;
   }
   const id = w.liste[w.i], c = L.caisse(S, id);
   let h = `<div class="sh-head" style="margin-bottom:0"><span class="etape">Caisse ${w.i + 1} sur ${n}</span>${X}</div>
     <div class="prog" aria-hidden="true">${w.liste.map((_, k) => `<i class="${k < w.i ? 'f' : k === w.i ? 'c' : ''}"></i>`).join('')}</div>
     <div class="pas"><div class="wiz-c" style="${gvars(id)}"><span class="solde-ic">${ICO(icoCaisse(id))}</span><div><b>${esc(c.nom)}</b>${c.numero ? `<span>${esc(c.numero)}</span>` : ''}</div></div>`;
   if (w.cl) return h + ecartHTML(L.trouverCloture(S, w.cl), true) + '</div>';
-  const att = L.soldeAttendu(S, id);
+  const att = L.soldeAttendu(S, id), pdv = !!c.pdv, part = w.part || 'w-uv';
+  const partBtn = (k, lib, ic) => `<button class="part ${part === k ? 'on' : ''}" data-act="w-part" data-k="${k}" aria-pressed="${part === k}"><span>${ICO(ic, 'xs')} ${lib}</span><b class="num" id="${k}-v">…</b></button>`;
   return h + `<div class="att"><span>Solde attendu</span><b class="num ${att < 0 ? 'neg' : ''}">${F(att)}</b></div>
       <details class="detail"><summary>${ICO('chev-r')}Comment c’est calculé</summary>${tableDecomp(c, L.decomposition(S, id, null, Date.now() + 1))}</details>
-    <div class="lbl" style="text-align:center;margin-top:var(--s2)">Solde réel lu sur ton compte</div>
+    <div class="lbl" style="text-align:center;margin-top:var(--s2)">${pdv ? 'Compte les deux : électronique + espèces' : 'Solde réel lu sur ton compte'}</div>
+    ${pdv ? `<div class="duo">${partBtn('w-uv', 'Électronique', 'phone')}${partBtn('w-esp', 'Espèces', 'cash')}</div>` : ''}
     ${montantHTML('w-reel')}<div class="ctx" id="w-ctx"></div>
-    ${pave('w-reel')}
+    ${pave(pdv ? part : 'w-reel')}
     <div class="duo"><button class="btn btn-sec" data-act="wiz-pareil">${ICO('check', 's')}Identique</button><button class="btn btn-pri" data-act="wiz-ok">Valider</button></div>
     <button class="btn btn-ghost" data-act="wiz-passer">Passer cette caisse</button></div>`;
 };
-APRES.wiz = () => { majMontant('w-reel'); majMontant('eo-montant'); };
+APRES.wiz = () => { const w = UI.wiz, c = w && w.i < w.liste.length && L.caisse(S, w.liste[w.i]); if (c && c.pdv && !w.cl) majParts(); else majMontant('w-reel'); majMontant('eo-montant'); };
 
 // Confirmations
 FEUILLES.confirm = f => tete(esc(f.titre)) + `<p style="margin-bottom:var(--s5);color:var(--text-2)">${f.texte}</p>
@@ -1843,7 +2079,7 @@ ACT.saisie = d => {
   let caisse = d.caisse || PREFS.caisse;
   if (!act.some(c => c.id === caisse)) caisse = act[0] && act[0].id;
   const type = d.type || 'sortie';
-  UI.saisie = { type, caisse, note: '', categorie: catDefaut(type), jour: auj(), oublieDe: null };
+  UI.saisie = { type, caisse, note: '', categorie: catDefaut(type), jour: auj(), oublieDe: null, pourSalon: false };
   ouvrir({ type: 'saisie' });
 };
 ACT['s-type'] = (d, b) => {
@@ -1851,19 +2087,24 @@ ACT['s-type'] = (d, b) => {
   s.type = d.val; s.categorie = catDefaut(s.type);
   b.parentElement.querySelectorAll('button').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', x === b); });
   $('#s-cats').innerHTML = catsHTML(s);
+  $('#s-salon-zone').innerHTML = salonHTML(s);
   $('#s-titre').textContent = titreSaisie(s);
   $('#s-ok').textContent = s.type === 'entree' ? 'Enregistrer l’entrée' : 'Enregistrer la sortie';
   majMontant('s-montant');
 };
-ACT['s-caisse'] = (d, b) => { UI.saisie.caisse = d.id; UI.saisie.oublieDe = null; $('#s-caisses').querySelectorAll('.puce').forEach(x => x.classList.toggle('on', x === b)); $('#s-oubli-zone').innerHTML = oubliHTML(UI.saisie); majMontant('s-montant'); };
+ACT['s-caisse'] = (d, b) => {
+  const s = UI.saisie; s.caisse = d.id; s.oublieDe = null; if (s.caisse === S.reglages.caisseSalon) s.pourSalon = false;
+  $('#s-caisses').querySelectorAll('.puce').forEach(x => x.classList.toggle('on', x === b));
+  $('#s-oubli-zone').innerHTML = oubliHTML(s); $('#s-salon-zone').innerHTML = salonHTML(s); $('#s-cats').innerHTML = catsHTML(s); majMontant('s-montant');
+};
 ACT['s-cat'] = (d, b) => { UI.saisie.categorie = d.val; $('#s-cats').querySelectorAll('.puce').forEach(x => x.classList.toggle('on', x === b)); };
 ACT['s-jour'] = (d, b) => { UI.saisie.jour = d.val; $('#s-jours').querySelectorAll('.puce').forEach(x => x.classList.toggle('on', x === b)); $('#s-date').value = ''; $('#s-date-t').textContent = 'Autre date'; };
 ACT['s-ok'] = () => {
   const s = UI.saisie, cb = $('#s-oubli');
-  const mv = L.creerOperation(S, { type: s.type, caisse: s.caisse, montant: lireMt('s-montant'), categorie: s.categorie, note: $('#s-note').value, jour: s.jour, oublieDe: cb && cb.checked ? cb.dataset.cl : null });
-  PREFS.caisse = s.caisse; PREFS.cat = Object.assign({}, PREFS.cat, { [s.type]: s.categorie }); sauverPrefs();
+  const mv = L.creerOperation(S, { type: s.type, caisse: s.caisse, montant: lireMt('s-montant'), categorie: s.categorie, note: $('#s-note').value, jour: s.jour, oublieDe: cb && cb.checked ? cb.dataset.cl : null, pourSalon: s.pourSalon });
+  PREFS.caisse = s.caisse; if (!pourLeSalon(s)) PREFS.cat = Object.assign({}, PREFS.cat, { [s.type]: s.categorie }); sauverPrefs();
   sauver(); fermer();
-  toast(`${s.type === 'entree' ? 'Entrée' : 'Sortie'} de ${F(mv.montant)} · ${L.nom(S, mv.caisse)}`, annulerAjout([mv.id]));
+  toast(`${s.type === 'entree' ? 'Entrée' : 'Sortie'} de ${F(mv.montant)} · ${L.nom(S, mv.caisse)}${mv.pourSalon ? ' · pour le salon' : ''}`, annulerAjout([mv.id]));
 };
 
 // Prêts
@@ -1872,17 +2113,30 @@ ACT.pret = () => {
   if (act.length < 2) throw new Error('Il faut au moins deux caisses');
   const de = act.some(c => c.id === PREFS.pretDe) ? PREFS.pretDe : act[0].id;
   const vers = (act.find(c => c.id !== de && c.id === PREFS.pretVers) || act.find(c => c.id !== de)).id;
-  UI.pret = { de, vers, note: '' };
+  UI.pret = { de, vers, note: '', mode: 'pret' };
   ouvrir({ type: 'pret' });
 };
+ACT.apport = d => {
+  const act = L.caissesActives(S);
+  if (act.length < 2) throw new Error('Il faut au moins deux caisses');
+  const sal = act.some(c => c.id === S.reglages.caisseSalon) ? S.reglages.caisseSalon : null;
+  let vers = d.vers || sal || PREFS.apportVers;
+  if (!act.some(c => c.id === vers)) vers = act[1].id;
+  let de = act.some(c => c.id === PREFS.apportDe && c.id !== vers) ? PREFS.apportDe : (act.some(c => c.id === S.reglages.caissePerso && c.id !== vers) ? S.reglages.caissePerso : act.find(c => c.id !== vers).id);
+  UI.pret = { de, vers, note: '', mode: 'apport' };
+  ouvrir({ type: 'pret' });
+};
+ACT['p-mode'] = d => { UI.pret.mode = d.val; UI.pret.note = $('#p-note').value; rendreFeuille(); };
 ACT['p-de'] = (d, b) => { UI.pret.de = d.id; $('#p-de').querySelectorAll('.puce').forEach(x => x.classList.toggle('on', x === b)); phrasePret(); };
 ACT['p-vers'] = (d, b) => { UI.pret.vers = d.id; $('#p-vers').querySelectorAll('.puce').forEach(x => x.classList.toggle('on', x === b)); phrasePret(); };
 ACT['p-ok'] = () => {
-  const p = UI.pret;
-  const mv = L.creerPret(S, { de: p.de, vers: p.vers, montant: lireMt('p-montant'), note: $('#p-note').value });
-  PREFS.pretDe = p.de; PREFS.pretVers = p.vers; sauverPrefs();
-  sauver(); fermer();
-  toast(`${L.nom(S, p.de)} prête ${F(mv.montant)} à ${L.nom(S, p.vers)}`, annulerAjout([mv.id]));
+  const p = UI.pret, ap = p.mode === 'apport';
+  if (String($('#p-note').value).trim().length < L.MOTIF_MIN) { $('#p-note').focus(); throw new Error('Écris le motif : pour quoi cet argent passe d’une caisse à l’autre ?'); }
+  const o = { de: p.de, vers: p.vers, montant: lireMt('p-montant'), note: $('#p-note').value };
+  const mv = ap ? L.creerApport(S, o) : L.creerPret(S, o);
+  if (ap) { PREFS.apportDe = p.de; PREFS.apportVers = p.vers; } else { PREFS.pretDe = p.de; PREFS.pretVers = p.vers; }
+  sauverPrefs(); sauver(); fermer();
+  toast(ap ? `${L.nom(S, p.de)} → ${L.nom(S, p.vers)} : ${F(mv.montant)} (sans dette)` : `${L.nom(S, p.de)} prête ${F(mv.montant)} à ${L.nom(S, p.vers)}`, annulerAjout([mv.id]));
 };
 ACT['remb-tout'] = d => {
   const mv = L.rembourser(S, { debiteur: d.deb, creancier: d.cre, montant: 'tout' });
@@ -1922,9 +2176,10 @@ ACT.wiz = () => {
   UI.wiz = { liste, i: 0, cl: null };
   ouvrir({ type: 'wiz' });
 };
-function wizValider(valeur) {
+function wizValider(valeur, detail) {
   const w = UI.wiz, id = w.liste[w.i];
-  const cl = L.cloturer(S, id, valeur);
+  const cl = L.cloturer(S, id, valeur, undefined, detail);
+  w.part = null;
   sauver(); rendre();
   UI.mt = {};
   if (L.ecartActuel(S, cl) === 0) { toast(L.nom(S, id) + ' : juste'); w.i++; w.cl = null; }
@@ -1932,14 +2187,23 @@ function wizValider(valeur) {
   rendreFeuille();
   const p = $('.panneau'); if (p) p.scrollTop = 0;
 }
-ACT['wiz-ok'] = () => wizValider(lireMt('w-reel', true));
+ACT['wiz-ok'] = () => {
+  const c = L.caisse(S, UI.wiz.liste[UI.wiz.i]);
+  if (!c.pdv) return wizValider(lireMt('w-reel', true));
+  const u = UI.mt['w-uv'], e = UI.mt['w-esp'];
+  if (!u && !e) throw new Error('Tape le solde électronique et les espèces');
+  if (!u || !e) { const manque = !u ? 'w-uv' : 'w-esp'; if (UI.wiz.part !== manque) { UI.wiz.part = manque; rendreFeuille(); toast(manque === 'w-uv' ? 'Et le solde électronique ? (0 si vide)' : 'Et les espèces en caisse ? (0 si vide)', null, 'info'); return; } }
+  const detail = { electronique: Number(u || 0), especes: Number(e || 0) };
+  wizValider(detail.electronique + detail.especes, detail);
+};
+ACT['w-part'] = d => { UI.wiz.part = d.k; rendreFeuille(); };
 ACT['wiz-pareil'] = () => {
   const att = L.soldeAttendu(S, UI.wiz.liste[UI.wiz.i]);
   if (att < 0) throw new Error('Le solde attendu est négatif : tape le solde réel');
   wizValider(att);
 };
-ACT['wiz-passer'] = () => { UI.wiz.i++; UI.wiz.cl = null; UI.mt = {}; rendreFeuille(); };
-ACT['wiz-suivant'] = () => { UI.wiz.i++; UI.wiz.cl = null; UI.mt = {}; rendreFeuille(); const p = $('.panneau'); if (p) p.scrollTop = 0; };
+ACT['wiz-passer'] = () => { UI.wiz.i++; UI.wiz.cl = null; UI.wiz.part = null; UI.mt = {}; rendreFeuille(); };
+ACT['wiz-suivant'] = () => { UI.wiz.i++; UI.wiz.cl = null; UI.wiz.part = null; UI.mt = {}; rendreFeuille(); const p = $('.panneau'); if (p) p.scrollTop = 0; };
 
 // Écarts
 ACT.ecart = d => { if (UI.feuille && UI.feuille.type === 'wiz') UI.wiz = null; ouvrir({ type: 'ecart', id: d.id }); };
@@ -1969,13 +2233,32 @@ ACT['suppr-ok'] = d => {
   toast('Opération supprimée', () => { L.restaurerMouvement(S, sv); sauver(); rendre(); toast('Opération rétablie'); }, 'info');
 };
 
+// Salon et point du soir
+ACT['salon-enreg'] = () => {
+  const b = $('#salon-budget').value.trim();
+  if (b && L.parseMontant(b) == null) throw new Error('Budget non compris. Exemples : 3000000, 3M, 2,5M');
+  L.reglerSalon(S, { caisse: $('#salon-sel').value, budget: b ? L.parseMontant(b) : 0 });
+  sauver(); rendre(); toast('Salon enregistré');
+};
+ACT.point = d => { UI.jourPoint = d.jour || auj(); if (UI.feuille) fermer(); if (UI.vue !== 'point') UI.retour = UI.vue; UI.vue = 'point'; window.scrollTo(0, 0); rendre(); };
+ACT['point-jour'] = d => { const j = L.decalerJour(UI.jourPoint || auj(), Number(d.n)); if (j > auj()) return; UI.jourPoint = j; rendre(); };
+ACT['point-partager'] = async () => {
+  const t = L.texteResume(S, L.resumeJour(S, UI.jourPoint || auj()));
+  if (navigator.share) {
+    try { await navigator.share({ text: t }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  try { await navigator.clipboard.writeText(t); toast('Point copié : colle-le dans WhatsApp', null, 'info'); }
+  catch (e) { window.open('https://wa.me/?text=' + encodeURIComponent(t), '_blank'); }
+};
+
 // Caisses
 ACT['caisses-enreg'] = () => {
   const modifs = {};
-  document.querySelectorAll('[data-caisse][data-champ]').forEach(i => { (modifs[i.dataset.caisse] = modifs[i.dataset.caisse] || {})[i.dataset.champ] = i.value; });
+  document.querySelectorAll('[data-caisse][data-champ]').forEach(i => { (modifs[i.dataset.caisse] = modifs[i.dataset.caisse] || {})[i.dataset.champ] = i.type === 'checkbox' ? i.checked : i.value; });
   // tout vérifier avant d'écrire
   Object.values(modifs).forEach(o => { if (!String(o.nom).trim()) throw new Error('Une caisse n’a pas de nom'); if (L.parseMontant(String(o.soldeDepart).trim() === '' ? '0' : o.soldeDepart) == null) throw new Error('Solde de départ non compris pour ' + o.nom); });
   Object.entries(modifs).forEach(([id, o]) => L.modifierCaisse(S, id, o));
+  S.caisses.forEach(c => delete c.aConfigurer);
   S.departConfigure = true; sauver(); rendre(); toast('Caisses enregistrées');
 };
 ACT['caisse-ajout'] = () => {
@@ -2031,7 +2314,7 @@ ACT.agenda = async () => {
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const ev = (uid, debut, rrule, titre, desc) => ['BEGIN:VEVENT', 'UID:' + uid + '@caisses-herve', 'DTSTAMP:' + stamp, 'DTSTART:' + debut, 'DURATION:PT15M', 'RRULE:' + rrule, 'SUMMARY:' + titre, 'DESCRIPTION:' + desc, 'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + titre, 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT'];
   const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Caisses Herve//FR', 'CALSCALE:GREGORIAN',
-    ...ev('cloture', auj().replace(/-/g, '') + 'T' + hc + '0000', 'FREQ=DAILY', 'Clôture des caisses', 'Ouvre l’appli Caisses et fais la clôture du soir (5 min).'),
+    ...ev('cloture', auj().replace(/-/g, '') + 'T' + hc + '0000', 'FREQ=DAILY', 'Point du soir : clôture des caisses', 'Ouvre l’appli Caisses : compte chaque caisse, puis envoie-toi le point du jour.'),
     ...ev('salaire', L.dateSalaire(S, mois).replace(/-/g, '') + 'T090000', regle, 'Verser mon salaire (Caisses)', 'Ouvre l’appli Caisses et appuie sur « Verser mon salaire ».'),
     'END:VCALENDAR'].join('\r\n');
   try { if (await partagerFichier(ics, 'rappels-caisses.ics', ['text/calendar'])) return; } catch (e) { if (e && e.name === 'AbortError') return; }
@@ -2065,6 +2348,7 @@ document.addEventListener('change', e => {
   const t = e.target;
   try {
     if (t.id === 'perso-sel') { S.reglages.caissePerso = t.value; S.reglages.salaire.parts = S.reglages.salaire.parts.filter(p => p.caisse !== t.value); sauver(); toast('Le salaire ira dans « ' + L.nom(S, t.value) + ' »'); }
+    if (t.id === 's-salon' && UI.saisie) { UI.saisie.pourSalon = t.checked; $('#s-cats').innerHTML = catsHTML(UI.saisie); }
     if (t.id === 'heure-sel') { S.reglages.heureCloture = Number(t.value); sauver(); rendre(); toast('Rappel de clôture à partir de ' + t.value + ' h'); }
     if (t.id === 'fichier' && t.files && t.files[0]) {
       const lecteur = new FileReader();
@@ -2090,7 +2374,7 @@ document.addEventListener('keydown', e => {
   try { ACT[a]({}); } catch (err) { erreur(err); }
 });
 // Rafraîchir rappels et soldes quand on revient sur l'appli (ex. le soir)
-const VUES_AUTO = ['accueil', 'cloture', 'prets', 'bilan'];
+const VUES_AUTO = ['accueil', 'cloture', 'prets', 'bilan', 'salon', 'point'];
 document.addEventListener('visibilitychange', () => { if (!document.hidden && !UI.feuille && VUES_AUTO.includes(UI.vue)) rendre(); });
 setInterval(() => { if (!document.hidden && !UI.feuille && VUES_AUTO.includes(UI.vue)) rendre(); }, 5 * 60 * 1000);
 
