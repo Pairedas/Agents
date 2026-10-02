@@ -663,11 +663,11 @@ const L = (function () {
     return {
       app: APP, version: VERSION, creeLe: now,
       caisses: [
-        { id: 'pradex', nom: 'PRADEX', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[0] },
-        { id: 'om', nom: 'OM Makora', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[1], pdv: true },
-        { id: 'om2', nom: 'OM Apsonic 3', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[5], pdv: true },
-        { id: 'salon', nom: 'Salon', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[2] },
-        { id: 'perso', nom: 'Perso', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[3] },
+        { id: 'pradex', nom: 'PRADEX', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[0], heureCloture: 19 },
+        { id: 'om', nom: 'OM Makora', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[1], pdv: true, heureCloture: 19 },
+        { id: 'om2', nom: 'OM Apsonic 3', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[5], pdv: true, heureCloture: 19 },
+        { id: 'salon', nom: 'Salon', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[2], heureCloture: 19 },
+        { id: 'perso', nom: 'Perso', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[3], heureCloture: 19 },
       ],
       mouvements: [],
       clotures: [],
@@ -923,14 +923,30 @@ const L = (function () {
     cl.notes.push({ quand: now, texte: t.slice(0, 300), ajustement: e });
     return mv;
   }
+  /* Chaque caisse a sa propre heure de clôture (null = pas de clôture chaque jour) : les clôtures sont indépendantes. */
+  function caissesACloturer(st) { return caissesActives(st).filter(c => c.heureCloture != null); }
+  function heureLib(h) { return h == null ? 'pas chaque jour' : h + ' h'; }
+  /** Caisses dont l'heure de clôture est passée et qui ne sont pas encore comptées aujourd'hui. */
+  function cloturesDues(st, now) {
+    now = now == null ? Date.now() : now;
+    const jour = jourISO(now), h = new Date(now).getHours();
+    return caissesACloturer(st).filter(c => h >= c.heureCloture && !clotureDuJourPour(st, c.id, jour)).map(c => c.id);
+  }
+  /** fait | du (heure passée) | plus_tard | aucune (pas de clôture quotidienne) */
+  function etatClotureCaisse(st, id, now) {
+    now = now == null ? Date.now() : now;
+    const c = caisse(st, id); if (!c || c.heureCloture == null) return clotureDuJourPour(st, id, jourISO(now)) ? 'fait' : 'aucune';
+    if (clotureDuJourPour(st, id, jourISO(now))) return 'fait';
+    return new Date(now).getHours() >= c.heureCloture ? 'du' : 'plus_tard';
+  }
   function clotureDuJour(st, now) {
     now = now == null ? Date.now() : now;
-    const jour = jourISO(now), act = caissesActives(st);
+    const jour = jourISO(now), act = caissesACloturer(st);
     const faites = act.filter(c => st.clotures.some(x => x.caisse === c.id && x.jour === jour && !x.remplaceePar));
     return { jour, total: act.length, faites: faites.length, manquantes: act.filter(c => !faites.includes(c)).map(c => c.id), complete: faites.length === act.length && act.length > 0 };
   }
   function clotureDuJourPour(st, caisseId, jour) { return st.clotures.find(x => x.caisse === caisseId && x.jour === jour && !x.remplaceePar) || null; }
-  function rappelCloture(st, now) { now = now == null ? Date.now() : now; return !clotureDuJour(st, now).complete && new Date(now).getHours() >= st.reglages.heureCloture; }
+  function rappelCloture(st, now) { return cloturesDues(st, now).length > 0; }
 
   /* ── Suivi du salon (investissement) ── */
   /** Argent mis dans le salon : transferts vers la caisse Salon + dépenses du salon payées depuis une autre caisse. */
@@ -978,7 +994,7 @@ const L = (function () {
       listeSorties: mvs.filter(m => m.type === 'sortie'), listeEntrees: mvs.filter(m => m.type === 'entree'),
       transferts: mvs.filter(m => ['pret', 'remb', 'apport', 'salaire'].includes(m.type)),
       dettes: dettes(st), totalDettes: totalDettes(st),
-      clotures: caisses.filter(x => x.cloture).length, aCompter: st.caisses.filter(c => !c.archivee).length,
+      clotures: caisses.filter(x => x.cloture).length, aCompter: caissesACloturer(st).length,
       ecarts: caisses.filter(x => x.ecart),
     };
   }
@@ -1052,6 +1068,7 @@ const L = (function () {
     if (!Array.isArray(d.caisses) || !d.caisses.length) throw E('Aucune caisse dans la sauvegarde');
     const ent = n => Number.isInteger(n);
     const ids = new Set();
+    const hDef = d.reglages && ent(d.reglages.heureCloture) && d.reglages.heureCloture >= 0 && d.reglages.heureCloture <= 23 ? d.reglages.heureCloture : 19;
     const caisses = d.caisses.map((c, i) => {
       if (!c || typeof c.id !== 'string' || !c.id) throw E('Caisse n°' + (i + 1) + ' invalide');
       if (ids.has(c.id)) throw E('Caisse en double : ' + c.id);
@@ -1061,6 +1078,7 @@ const L = (function () {
       const o = { id: c.id, nom: String(c.nom || c.id).slice(0, 40), numero: String(c.numero || '').slice(0, 60), soldeDepart: sd, archivee: !!c.archivee, couleur: /^#[0-9a-f]{6}$/i.test(c.couleur || '') ? c.couleur : COULEURS[i % COULEURS.length] };
       if (c.pdv) o.pdv = true;
       if (c.aConfigurer) o.aConfigurer = true;
+      o.heureCloture = c.heureCloture === null ? null : ent(c.heureCloture) && c.heureCloture >= 0 && c.heureCloture <= 23 ? c.heureCloture : hDef;
       return o;
     });
     // Version 2 : l'ancienne caisse « Orange Money » devient « OM Makora », et le 2e point « OM Apsonic 3 » est ajouté.
@@ -1068,7 +1086,7 @@ const L = (function () {
     if (v1) {
       const om = caisses.find(c => c.id === 'om');
       if (om) { if (om.nom === 'Orange Money') om.nom = 'OM Makora'; om.pdv = true; }
-      if (om && !ids.has('om2')) { caisses.splice(caisses.indexOf(om) + 1, 0, { id: 'om2', nom: 'OM Apsonic 3', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[5], pdv: true, aConfigurer: !!d.departConfigure }); ids.add('om2'); }
+      if (om && !ids.has('om2')) { caisses.splice(caisses.indexOf(om) + 1, 0, { id: 'om2', nom: 'OM Apsonic 3', numero: '', soldeDepart: 0, archivee: false, couleur: COULEURS[5], pdv: true, aConfigurer: !!d.departConfigure, heureCloture: om.heureCloture }); ids.add('om2'); }
     }
     if (d.mouvements != null && !Array.isArray(d.mouvements)) throw E('Liste des opérations invalide');
     const mvIds = new Set(), pretIds = new Set();
@@ -1142,7 +1160,8 @@ const L = (function () {
   /* ── Caisses ── */
   function ajouterCaisse(st, o) {
     const n = String(o.nom || '').trim(); if (!n) throw E('Donne un nom à la caisse');
-    const c = { id: uid('k'), nom: n.slice(0, 40), numero: String(o.numero || '').trim().slice(0, 60), soldeDepart: lireMontant(o.soldeDepart === '' || o.soldeDepart == null ? 0 : o.soldeDepart, true), archivee: false, couleur: COULEURS[st.caisses.length % COULEURS.length] };
+    const c = { id: uid('k'), nom: n.slice(0, 40), numero: String(o.numero || '').trim().slice(0, 60), soldeDepart: lireMontant(o.soldeDepart === '' || o.soldeDepart == null ? 0 : o.soldeDepart, true), archivee: false, couleur: COULEURS[st.caisses.length % COULEURS.length], heureCloture: st.reglages.heureCloture };
+    if (o.heureCloture !== undefined) c.heureCloture = lireHeure(o.heureCloture);
     st.caisses.push(c); return c;
   }
   function modifierCaisse(st, id, o) {
@@ -1151,7 +1170,15 @@ const L = (function () {
     if (o.numero != null) c.numero = String(o.numero).trim().slice(0, 60);
     if (o.soldeDepart != null) c.soldeDepart = lireMontant(o.soldeDepart === '' ? 0 : o.soldeDepart, true);
     if (o.pdv != null) { if (o.pdv) c.pdv = true; else delete c.pdv; }
+    if (o.heureCloture !== undefined) c.heureCloture = lireHeure(o.heureCloture);
     return c;
+  }
+  /** '' ou 'aucune' = pas de clôture chaque jour ; sinon une heure de 0 à 23. */
+  function lireHeure(v) {
+    if (v === null || v === '' || v === 'aucune') return null;
+    const h = Number(v);
+    if (!Number.isInteger(h) || h < 0 || h > 23) throw E('Heure de clôture invalide');
+    return h;
   }
   function archiverCaisse(st, id, archiver) {
     const c = exigerCaisse(st, id);
@@ -1225,7 +1252,7 @@ const L = (function () {
     creerOperation, creerPret, creerApport, rembourser, rembourseSur, restantPret, pretsOuverts, dettes, totalDettes, detteEntre,
     totalSalaire, dateSalaire, salairesDuMois, etatSalaire, verserSalaire, reglerSalaire,
     cloturer, trouverCloture, cloturesCaisse, derniereCloture, ecartActuel, statutCloture, ecartsNonResolus, ajouterNote, expliquerEtClore,
-    clotureDuJour, clotureDuJourPour, rappelCloture,
+    clotureDuJour, clotureDuJourPour, rappelCloture, caissesACloturer, cloturesDues, etatClotureCaisse, heureLib,
     bilanMois, suiviSalon, reglerSalon, resumeJour, texteResume, decalerJour, rappelSauvegarde, exporter, importer, normaliser,
     ajouterCaisse, modifierCaisse, archiverCaisse, supprimerMouvement, restaurerMouvement, ajouterMouvementsExternes,
     serieSoldes, variationJour, depensesParCategorie, debutJour,
@@ -1386,17 +1413,31 @@ function blocEcarts() {
     <span class="d"><b class="m num ${x.ecart < 0 ? 'neg' : 'pos'}">${FS(x.ecart)}</b><small>À régler</small></span>${ICO('chev-r')}</button>`).join('') + '</div>';
 }
 function blocClotureJour() {
-  const cj = L.clotureDuJour(S), reste = cj.total - cj.faites;
-  const chips = L.caissesActives(S).map(c => {
-    const cl = L.clotureDuJourPour(S, c.id, cj.jour);
-    if (!cl) return `<span class="cchip todo"><span class="pt" style="${gvars(c.id)}"></span>${esc(c.nom)}${ICO('clock')}</span>`;
-    const st = L.statutCloture(S, cl);
-    return st === 'a_expliquer' ? `<span class="cchip ecart"><span class="pt" style="${gvars(c.id)}"></span>${esc(c.nom)}${ICO('alert')}</span>` : `<span class="cchip ok"><span class="pt" style="${gvars(c.id)}"></span>${esc(c.nom)}${ICO('check')}</span>`;
+  const now = Date.now(), cj = L.clotureDuJour(S, now), dues = L.cloturesDues(S, now);
+  const lignes = L.caissesActives(S).map(c => {
+    const etat = L.etatClotureCaisse(S, c.id, now), cl = L.clotureDuJourPour(S, c.id, cj.jour);
+    let info, bouton;
+    if (cl) {
+      const st = L.statutCloture(S, cl), e = L.ecartActuel(S, cl);
+      info = st === 'a_expliquer' ? `<span class="warn">écart ${FS(e)}</span> · compté à ${L.heure(cl.quand)}` : `<span class="pos">${ICO('check', 'xs')} juste</span> · compté à ${L.heure(cl.quand)}`;
+      bouton = `<button class="btn btn-sec sm" style="width:auto" data-act="wiz" data-id="${esc(c.id)}">Recompter</button>`;
+    } else if (etat === 'du') {
+      info = `<span class="warn">à clôturer</span> · depuis ${c.heureCloture} h`;
+      bouton = `<button class="btn btn-pri sm" style="width:auto" data-act="wiz" data-id="${esc(c.id)}">Clôturer</button>`;
+    } else if (etat === 'plus_tard') {
+      info = `clôture à ${c.heureCloture} h`;
+      bouton = `<button class="btn btn-sec sm" style="width:auto" data-act="wiz" data-id="${esc(c.id)}">Clôturer</button>`;
+    } else {
+      info = 'pas de clôture chaque jour';
+      bouton = `<button class="btn btn-ghost sm" style="width:auto" data-act="wiz" data-id="${esc(c.id)}">Compter</button>`;
+    }
+    return `<div class="ligne-r" style="padding:var(--s2) 0;min-height:56px">${avatar(c.id, 'sm')}<span class="g" style="min-width:0">${esc(c.nom)}<div class="aide" style="margin:0">${info}</div></span>${bouton}</div>`;
   }).join('');
-  return `<div class="clo-head">${anneau(cj.faites, cj.total)}<div><div class="clo-t">${cj.complete ? 'Clôture faite' : cj.faites ? 'Clôture en cours' : 'Clôture pas encore faite'}</div>
-    <div class="clo-s"><span class="num">${cj.faites}/${cj.total}</span> caisses comptées${reste > 0 ? ' · ' + reste + ' restante' + (reste > 1 ? 's' : '') : ''}</div></div></div>
-    <div class="cchips">${chips}</div>
-    <button class="btn ${cj.complete ? 'btn-sec' : 'btn-pri'}" data-act="wiz">${ICO(cj.complete ? 'undo' : 'moon')}${cj.complete ? 'Recompter les caisses' : 'Faire la clôture'}</button>`;
+  const titre = cj.complete ? 'Toutes les clôtures sont faites' : dues.length ? dues.length + ' caisse' + (dues.length > 1 ? 's' : '') + ' à clôturer' : cj.faites ? 'Clôtures en cours' : 'Aucune clôture due pour l’instant';
+  return `<div class="clo-head">${anneau(cj.faites, cj.total)}<div><div class="clo-t">${titre}</div>
+    <div class="clo-s"><span class="num">${cj.faites}/${cj.total}</span> caisses comptées aujourd’hui · chacune à son heure</div></div></div>
+    <div class="liste" style="margin-top:var(--s3)">${lignes}</div>
+    ${dues.length > 1 ? `<button class="btn btn-pri" style="margin-top:var(--s3)" data-act="wiz">${ICO('moon')}Clôturer les ${dues.length} caisses dues</button>` : ''}`;
 }
 function infoMv(m) {
   switch (m.type) {
@@ -1456,8 +1497,9 @@ VUES.accueil = () => {
   if (sal.jourJ && !sal.verse && sal.total > 0) h += alerte('ok', 'cash', 'C’est le jour du salaire', `<span class="num">${F(sal.total)}</span> à verser vers ${N(S.reglages.caissePerso)} (prévu le ${esc(L.dateCourte(sal.date))}).`, `<button class="btn btn-pri sm" data-act="salaire-verser">Verser mon salaire</button>`);
   const aConf = S.departConfigure ? act.filter(c => c.aConfigurer) : [];
   if (aConf.length) h += alerte('', 'wallet', 'Nouvelle caisse : ' + aConf.map(c => esc(c.nom)).join(', '), 'Ton 2e point Orange Money a sa propre caisse. Écris son solde de départ.', `<button class="btn btn-pri sm" data-act="vue" data-vue="caisses">Saisir le solde de départ</button>`);
-  if (L.rappelCloture(S, now)) h += alerte('at', 'moon', 'La clôture du soir n’est pas faite', `${cj.faites}/${cj.total} caisses comptées. Cinq minutes suffisent.`, `<button class="btn btn-pri sm" data-act="wiz">Faire la clôture</button>`);
-  else if (cj.complete || h0 >= S.reglages.heureCloture) h += alerte('ok', 'receipt', 'Le point du soir', 'Tes entrées, sorties, transferts et dettes de la journée, prêts à envoyer sur WhatsApp.', `<button class="btn btn-soft sm" data-act="point" data-jour="${auj()}">Voir le point du jour</button>`);
+  const dues = L.cloturesDues(S, now);
+  if (dues.length) h += alerte('at', 'moon', dues.length > 1 ? dues.length + ' caisses à clôturer' : 'Clôture de ' + N(dues[0]), dues.map(id => `${N(id)} (depuis ${L.caisse(S, id).heureCloture} h)`).join(' · '), `<button class="btn btn-pri sm" data-act="wiz">${dues.length > 1 ? 'Clôturer ces caisses' : 'Clôturer ' + N(dues[0])}</button>`);
+  else if (cj.faites > 0) h += alerte('ok', 'receipt', 'Le point du soir', 'Tes entrées, sorties, transferts et dettes de la journée, prêts à envoyer sur WhatsApp.', `<button class="btn btn-soft sm" data-act="point" data-jour="${auj()}">Voir le point du jour</button>`);
   // Patrimoine total
   const up = varTot > 0, down = varTot < 0;
   h += `<section class="hero" aria-label="Patrimoine total"><div class="hero-top"><span>Patrimoine total</span><span>${act.length} caisses</span></div>
@@ -1503,7 +1545,7 @@ VUES.prets = () => {
 };
 
 VUES.cloture = () => {
-  let h = entete('Clôture du soir', null, `<button class="icon-btn" data-act="point" aria-label="Point du soir">${ICO('receipt')}</button>`) + `<p class="lead">Caisse par caisse : tu tapes le solde réel lu sur ton compte, l’appli calcule l’écart avec le solde attendu.</p>
+  let h = entete('Clôture du soir', null, `<button class="icon-btn" data-act="point" aria-label="Point du soir">${ICO('receipt')}</button>`) + `<p class="lead">Chaque caisse se clôture à son heure, sans attendre les autres : tu tapes le solde réel, l’appli calcule l’écart avec le solde attendu.</p>
     <div class="card">${blocClotureJour()}</div>
     <button class="btn btn-soft" style="margin-top:var(--s3)" data-act="point">${ICO('receipt')}Voir le point du jour</button>`;
   const nbE = L.ecartsNonResolus(S).length;
@@ -1609,7 +1651,7 @@ VUES.plus = () => {
     ${rl('salaire', 'cash', 'Mon salaire', `<span class="num">${F(es.total)}</span> le ${S.reglages.salaire.jour} du mois`)}</div>
     <div class="g-titre">Données</div><div class="groupe">
     ${rl('sauvegarde', 'shield', 'Sauvegarde', bk.jamais ? 'Jamais faite' : 'Il y a ' + bk.jours + ' jour' + (bk.jours > 1 ? 's' : ''), bk.du ? '<span class="pill p-at">à faire</span>' : '')}
-    ${rl('rappels', 'bell', 'Rappels', 'Clôture à partir de ' + S.reglages.heureCloture + ' h')}
+    ${rl('rappels', 'bell', 'Heures de clôture', heuresAgenda().map(x => x.h + ' h').join(' · ') || 'Aucune clôture quotidienne')}
     <button class="rl" data-act="installer"><span class="r-ic">${ICO('install')}</span><span class="g"><span class="t">Installer sur l’écran d’accueil</span><span class="s">Ouvre l’appli comme une vraie appli</span></span>${ICO('chev-r')}</button></div>
     <p class="pied">Les données restent uniquement sur ce téléphone · version ${L.VERSION}</p>`;
 };
@@ -1639,6 +1681,9 @@ VUES.historique = () => {
   return h;
 };
 
+function selectHeure(id, h, attrs) {
+  return `<select class="field" id="${esc(id)}" ${attrs || ''}><option value="aucune" ${h == null ? 'selected' : ''}>Pas de clôture chaque jour</option>${Array.from({ length: 18 }, (_, k) => k + 6).map(x => `<option value="${x}" ${x === h ? 'selected' : ''}>${x} h</option>`).join('')}</select>`;
+}
 VUES.caisses = () => {
   const act = S.caisses.filter(c => !c.archivee), arch = S.caisses.filter(c => c.archivee);
   let h = entete('Mes caisses', ['plus', 'Réglages']) + `<p class="lead">Le solde de départ est le solde du compte le jour où tu commences avec l’appli. Ensuite, ne le change plus : saisis des entrées et des sorties.</p>`;
@@ -1646,6 +1691,7 @@ VUES.caisses = () => {
     <label class="form-l" for="cn-${esc(c.id)}">Nom</label><input class="field" id="cn-${esc(c.id)}" data-caisse="${esc(c.id)}" data-champ="nom" maxlength="40" value="${esc(c.nom)}">
     <label class="form-l" for="cu-${esc(c.id)}">Numéro ou compte</label><input class="field" id="cu-${esc(c.id)}" data-caisse="${esc(c.id)}" data-champ="numero" maxlength="60" placeholder="ex : 07 xx xx xx xx" value="${esc(c.numero)}">
     <label class="form-l" for="cs-${esc(c.id)}">Solde de départ (F)${c.aConfigurer ? ' <span class="pill p-at">à saisir</span>' : ''}</label><input class="field num" id="cs-${esc(c.id)}" data-caisse="${esc(c.id)}" data-champ="soldeDepart" inputmode="numeric" value="${esc(L.grouper(c.soldeDepart))}">
+    <label class="form-l" for="ch-${esc(c.id)}">Heure de clôture</label>${selectHeure('ch-' + c.id, c.heureCloture, `data-caisse="${esc(c.id)}" data-champ="heureCloture"`)}
     <label class="bascule" style="background:var(--surface-2)"><input type="checkbox" data-caisse="${esc(c.id)}" data-champ="pdv" ${c.pdv ? 'checked' : ''}><span>Point de vente Orange Money : le soir, je compte <b>l’électronique</b> et <b>les espèces</b> séparément</span></label></div>
     ${c.id !== S.reglages.caissePerso ? `<div class="c-pied"><span>Plus utilisée ?</span><button class="btn btn-ghost sm" data-act="archiver" data-id="${esc(c.id)}">Archiver</button></div>` : ''}</div>`).join('');
   h += `<button class="btn btn-pri" data-act="caisses-enreg">${ICO('check')}Enregistrer les caisses</button>`;
@@ -1653,6 +1699,7 @@ VUES.caisses = () => {
   h += section('Ajouter une caisse') + `<div class="card"><label class="form-l" for="nc-nom">Nom</label><input class="field" id="nc-nom" maxlength="40" placeholder="ex : Wave, Boutique…">
     <label class="form-l" for="nc-num">Numéro ou compte</label><input class="field" id="nc-num" maxlength="60">
     <label class="form-l" for="nc-solde">Solde de départ (F)</label><input class="field num" id="nc-solde" inputmode="numeric" placeholder="0">
+    <label class="form-l" for="nc-heure">Heure de clôture</label>${selectHeure('nc-heure', S.reglages.heureCloture)}
     <button class="btn btn-soft" style="margin-top:var(--s4)" data-act="caisse-ajout">${ICO('plus')}Ajouter la caisse</button></div>`;
   if (arch.length) h += section('Caisses archivées') + `<div class="card flush liste">${arch.map(c => `<div class="ligne-r">${avatar(c.id, 'sm')}<span class="g">${esc(c.nom)}</span><button class="btn btn-sec sm" style="width:auto" data-act="reactiver" data-id="${esc(c.id)}">Réactiver</button></div>`).join('')}</div>`;
   return h;
@@ -1688,13 +1735,19 @@ VUES.sauvegarde = () => {
 };
 
 VUES.rappels = () => {
-  const hc = S.reglages.heureCloture;
-  return entete('Rappels', ['plus', 'Réglages']) + `<div class="card"><label class="form-l" for="heure-sel">Rappel de clôture à partir de</label>
-    <select class="field" id="heure-sel">${[16, 17, 18, 19, 20, 21, 22, 23].map(x => `<option value="${x}" ${x === hc ? 'selected' : ''}>${x} h</option>`).join('')}</select>
-    <p class="aide">À l’ouverture, l’appli signale : la clôture du soir pas faite (après cette heure), le salaire le jour J, et la sauvegarde après 7 jours.</p></div>
-    ${section('Être prévenu même appli fermée')}<div class="card"><p class="aide" style="margin:0 0 var(--s3)">Ajoute deux rappels dans l’agenda du téléphone : la clôture chaque soir à ${hc} h, et le salaire le ${S.reglages.salaire.jour} de chaque mois.</p>
+  const act = L.caissesActives(S);
+  return entete('Rappels', ['plus', 'Réglages']) + `<p class="lead">Chaque caisse a sa propre heure de clôture. À partir de cette heure, l’appli te rappelle de la compter, indépendamment des autres.</p>
+    <div class="card flush liste">${act.map(c => `<div class="ligne-r">${avatar(c.id, 'sm')}<span class="g">${esc(c.nom)}</span><span style="width:190px;flex-shrink:0">${selectHeure('rh-' + c.id, c.heureCloture, `data-heure-caisse="${esc(c.id)}" aria-label="Heure de clôture de ${esc(c.nom)}"`)}</span></div>`).join('')}</div>
+    <p class="aide">L’appli signale aussi le salaire le jour J, et la sauvegarde après 7 jours.</p>
+    ${section('Être prévenu même appli fermée')}<div class="card"><p class="aide" style="margin:0 0 var(--s3)">Ajoute les rappels dans l’agenda du téléphone : une alarme par heure de clôture${heuresAgenda().length ? ' (' + heuresAgenda().map(x => x.h + ' h').join(', ') + ')' : ''}, et le salaire le ${S.reglages.salaire.jour} de chaque mois.</p>
     <button class="btn btn-soft" data-act="agenda">${ICO('cal')}Ajouter à mon agenda</button></div>`;
 };
+/** Heures de clôture distinctes, avec les caisses concernées. */
+function heuresAgenda() {
+  const m = new Map();
+  L.caissesACloturer(S).forEach(c => { if (!m.has(c.heureCloture)) m.set(c.heureCloture, []); m.get(c.heureCloture).push(c.nom); });
+  return [...m.entries()].sort((a, b) => a[0] - b[0]).map(([h, noms]) => ({ h, noms }));
+}
 
 /* ── Salon en construction ── */
 function barreBudget(sl) {
@@ -1752,15 +1805,15 @@ VUES.point = () => {
   h += `<div class="kpis">
     <div class="kpi"><span>Entrées</span><b class="num pos sens">${FS(r.entrees)}</b><small>${r.listeEntrees.length} opération${r.listeEntrees.length > 1 ? 's' : ''}</small></div>
     <div class="kpi"><span>Sorties</span><b class="num sens">${FS(-r.sorties)}</b><small>${r.listeSorties.length} opération${r.listeSorties.length > 1 ? 's' : ''}</small></div></div>`;
-  h += section('Soldes de la journée') + `<div class="card flush liste">${r.caisses.map(x => `<div class="ligne-r">${avatar(x.caisse, 'sm')}<span class="g">${N(x.caisse)}<div class="aide num" style="margin-top:2px">${F(x.avant)} → ${F(x.apres)}</div></span><span class="d"><b class="num sens ${x.variation < 0 ? 'neg' : x.variation > 0 ? 'pos' : 'mute'}">${x.variation ? FS(x.variation) : '='}</b>${x.cloture ? (x.ecart ? `<span class="pill p-at">écart ${FS(x.ecart)}</span>` : `<span class="pill p-ok">${ICO('check')}compté</span>`) : '<span class="pill p-gr">pas compté</span>'}</span></div>`).join('')}
+  h += section('Soldes de la journée') + `<div class="card flush liste">${r.caisses.map(x => `<div class="ligne-r">${avatar(x.caisse, 'sm')}<span class="g">${N(x.caisse)}<div class="aide num" style="margin-top:2px">${F(x.avant)} → ${F(x.apres)}</div></span><span class="d"><b class="num sens ${x.variation < 0 ? 'neg' : x.variation > 0 ? 'pos' : 'mute'}">${x.variation ? FS(x.variation) : '='}</b>${x.cloture ? (x.ecart ? `<span class="pill p-at">écart ${FS(x.ecart)}</span>` : `<span class="pill p-ok">${ICO('check')}compté</span>`) : (L.caisse(S, x.caisse).heureCloture == null ? '' : '<span class="pill p-gr">pas compté</span>')}</span></div>`).join('')}
     <div class="ligne-r" style="background:var(--surface-2)"><span class="g">Total</span><span class="d"><b class="num sens">${F(totP)}</b><span class="aide num" style="margin:0">${totP - totA ? FS(totP - totA) : 'stable'}</span></span></div></div>`;
   h += section('Sorties', '', r.listeSorties.length ? ` <span class="badge n">${r.listeSorties.length}</span>` : '') + `<div class="card flush liste">${r.listeSorties.length ? r.listeSorties.map(m => ligneMv(m)).join('') : `<div class="vide"><span class="v-ic">${ICO('check')}</span><div class="v-t">Aucune sortie</div></div>`}</div>`;
   if (r.listeEntrees.length) h += section('Entrées') + `<div class="card flush liste">${r.listeEntrees.map(m => ligneMv(m)).join('')}</div>`;
   h += section('Entre caisses') + `<div class="card flush liste">${r.transferts.length ? r.transferts.map(m => ligneMv(m)).join('') : `<div class="vide"><span class="v-ic n">${ICO('swap')}</span><div class="v-t">Aucun mouvement entre caisses</div></div>`}</div>`;
   h += section('Dettes en cours') + `<div class="card flush">${blocDettes()}</div>`;
   h += `<div class="pile" style="margin-top:var(--s5)"><button class="btn btn-pri" data-act="point-partager">${ICO('share')}Envoyer le point (WhatsApp…)</button>
-    ${estAuj && !L.clotureDuJour(S).complete ? `<button class="btn btn-sec" data-act="wiz">${ICO('moon')}Faire la clôture</button>` : ''}
-    <button class="btn btn-ghost" data-act="agenda">${ICO('bell')}Me rappeler le point chaque soir à ${S.reglages.heureCloture} h</button></div>`;
+    ${estAuj && L.cloturesDues(S).length ? `<button class="btn btn-sec" data-act="wiz">${ICO('moon')}Clôturer les caisses dues</button>` : ''}
+    <button class="btn btn-ghost" data-act="agenda">${ICO('bell')}Me rappeler chaque clôture dans l’agenda</button></div>`;
   return h;
 };
 
@@ -2169,10 +2222,16 @@ ACT['salaire-enreg'] = () => {
 };
 
 // Clôture guidée
-ACT.wiz = () => {
-  const act = L.caissesActives(S), j = auj();
-  let liste = act.filter(c => !L.clotureDuJourPour(S, c.id, j)).map(c => c.id);
-  if (!liste.length) liste = act.map(c => c.id); // tout est fait : recompter
+ACT.wiz = d => {
+  const j = auj(), aCompter = L.caissesACloturer(S);
+  let liste;
+  if (d && d.id) liste = [d.id]; // une caisse seule : clôtures indépendantes
+  else {
+    liste = L.cloturesDues(S);
+    if (!liste.length) liste = aCompter.filter(c => !L.clotureDuJourPour(S, c.id, j)).map(c => c.id);
+    if (!liste.length) liste = aCompter.map(c => c.id); // tout est fait : recompter
+  }
+  if (!liste.length) throw new Error('Aucune caisse à clôturer : règle les heures dans Mes caisses');
   UI.wiz = { liste, i: 0, cl: null };
   ouvrir({ type: 'wiz' });
 };
@@ -2262,7 +2321,7 @@ ACT['caisses-enreg'] = () => {
   S.departConfigure = true; sauver(); rendre(); toast('Caisses enregistrées');
 };
 ACT['caisse-ajout'] = () => {
-  const c = L.ajouterCaisse(S, { nom: $('#nc-nom').value, numero: $('#nc-num').value, soldeDepart: $('#nc-solde').value });
+  const c = L.ajouterCaisse(S, { nom: $('#nc-nom').value, numero: $('#nc-num').value, soldeDepart: $('#nc-solde').value, heureCloture: $('#nc-heure').value });
   sauver(); rendre(); toast('Caisse « ' + c.nom + ' » ajoutée');
 };
 ACT.archiver = d => ouvrir({ type: 'confirm', titre: 'Archiver « ' + L.nom(S, d.id) + ' » ?', texte: 'La caisse disparaît de l’accueil mais son historique est gardé. Possible seulement si son solde est à 0 et sans prêt en cours.', bouton: 'Archiver', act: 'archiver-ok', id: d.id });
@@ -2308,13 +2367,13 @@ ACT['import-ok'] = () => {
 
 // Rappels & installation
 ACT.agenda = async () => {
-  const hc = L.pad(S.reglages.heureCloture), j = S.reglages.salaire.jour, now = Date.now();
+  const j = S.reglages.salaire.jour, now = Date.now();
   let mois = L.moisISO(now); if (L.dateSalaire(S, mois) < auj()) mois = L.moisSuivant(mois);
   const regle = j <= 28 ? 'FREQ=MONTHLY;BYMONTHDAY=' + j : 'FREQ=MONTHLY;BYMONTHDAY=' + Array.from({ length: j - 27 }, (_, k) => 28 + k).join(',') + ';BYSETPOS=-1';
   const stamp = new Date().toISOString().replace(/[-:]/g, '').replace(/\.\d+/, '');
   const ev = (uid, debut, rrule, titre, desc) => ['BEGIN:VEVENT', 'UID:' + uid + '@caisses-herve', 'DTSTAMP:' + stamp, 'DTSTART:' + debut, 'DURATION:PT15M', 'RRULE:' + rrule, 'SUMMARY:' + titre, 'DESCRIPTION:' + desc, 'BEGIN:VALARM', 'ACTION:DISPLAY', 'DESCRIPTION:' + titre, 'TRIGGER:PT0M', 'END:VALARM', 'END:VEVENT'];
   const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Caisses Herve//FR', 'CALSCALE:GREGORIAN',
-    ...ev('cloture', auj().replace(/-/g, '') + 'T' + hc + '0000', 'FREQ=DAILY', 'Point du soir : clôture des caisses', 'Ouvre l’appli Caisses : compte chaque caisse, puis envoie-toi le point du jour.'),
+    ...[].concat(...heuresAgenda().map(x => ev('cloture-' + x.h, auj().replace(/-/g, '') + 'T' + L.pad(x.h) + '0000', 'FREQ=DAILY', 'Clôture : ' + x.noms.join(', '), 'Ouvre l’appli Caisses et compte ' + x.noms.join(', ') + '.'))),
     ...ev('salaire', L.dateSalaire(S, mois).replace(/-/g, '') + 'T090000', regle, 'Verser mon salaire (Caisses)', 'Ouvre l’appli Caisses et appuie sur « Verser mon salaire ».'),
     'END:VCALENDAR'].join('\r\n');
   try { if (await partagerFichier(ics, 'rappels-caisses.ics', ['text/calendar'])) return; } catch (e) { if (e && e.name === 'AbortError') return; }
@@ -2349,7 +2408,7 @@ document.addEventListener('change', e => {
   try {
     if (t.id === 'perso-sel') { S.reglages.caissePerso = t.value; S.reglages.salaire.parts = S.reglages.salaire.parts.filter(p => p.caisse !== t.value); sauver(); toast('Le salaire ira dans « ' + L.nom(S, t.value) + ' »'); }
     if (t.id === 's-salon' && UI.saisie) { UI.saisie.pourSalon = t.checked; $('#s-cats').innerHTML = catsHTML(UI.saisie); }
-    if (t.id === 'heure-sel') { S.reglages.heureCloture = Number(t.value); sauver(); rendre(); toast('Rappel de clôture à partir de ' + t.value + ' h'); }
+    if (t.dataset && t.dataset.heureCaisse) { const c = L.modifierCaisse(S, t.dataset.heureCaisse, { heureCloture: t.value }); sauver(); rendre(); toast(c.nom + ' : ' + (c.heureCloture == null ? 'pas de clôture chaque jour' : 'clôture à ' + c.heureCloture + ' h')); }
     if (t.id === 'fichier' && t.files && t.files[0]) {
       const lecteur = new FileReader();
       lecteur.onload = () => { try { UI.importEnAttente = L.importer(String(lecteur.result)); ouvrir({ type: 'import' }); } catch (err) { erreur(err); } };

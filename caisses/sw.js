@@ -1,6 +1,6 @@
 /* Service worker Caisses : réseau d'abord (toujours la dernière version),
    cache en secours pour que l'app s'ouvre aussi hors connexion. */
-const CACHE = 'caisses-v2';
+const CACHE = 'caisses-v3';
 const FICHIERS = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {

@@ -119,4 +119,37 @@ test('apport : suppression et normalisation', () => {
   assert.strictEqual(L.soldeAttendu(st, 'salon'), 0);
 });
 
+test('clôtures indépendantes : chaque caisse à son heure', () => {
+  const st = neuf();
+  L.modifierCaisse(st, 'pradex', { heureCloture: '18' });
+  L.modifierCaisse(st, 'om', { heureCloture: 20 });
+  L.modifierCaisse(st, 'om2', { heureCloture: 21 });
+  L.modifierCaisse(st, 'salon', { heureCloture: 'aucune' });
+  L.modifierCaisse(st, 'perso', { heureCloture: 'aucune' });
+  const a = h => new Date(2026, 9, 2, h, 30).getTime();
+  assert.deepStrictEqual(L.cloturesDues(st, a(17)), []);
+  assert.deepStrictEqual(L.cloturesDues(st, a(18)), ['pradex']);
+  assert.deepStrictEqual(L.cloturesDues(st, a(20)), ['pradex', 'om']);
+  L.cloturer(st, 'om', 0, a(20));                   // OM Makora clôturée seule, avant PRADEX
+  assert.deepStrictEqual(L.cloturesDues(st, a(20)), ['pradex']);
+  assert.strictEqual(L.etatClotureCaisse(st, 'om', a(20)), 'fait');
+  assert.strictEqual(L.etatClotureCaisse(st, 'om2', a(20)), 'plus_tard');
+  assert.strictEqual(L.etatClotureCaisse(st, 'salon', a(20)), 'aucune');
+  const cj = L.clotureDuJour(st, a(21));
+  assert.strictEqual(cj.total, 3); assert.strictEqual(cj.faites, 1);
+  assert.ok(L.rappelCloture(st, a(21)));
+  assert.throws(() => L.modifierCaisse(st, 'om', { heureCloture: 25 }), /Heure/);
+});
+
+test('ancienne heure commune reprise pour chaque caisse', () => {
+  const v2 = JSON.parse(JSON.stringify(neuf()));
+  v2.caisses.forEach(c => delete c.heureCloture); v2.reglages.heureCloture = 20;
+  const st = L.normaliser(v2);
+  assert.ok(st.caisses.every(c => c.heureCloture === 20));
+  st.caisses[3].heureCloture = null;
+  assert.strictEqual(L.normaliser(JSON.parse(JSON.stringify(st))).caisses[3].heureCloture, null);
+  const c = L.ajouterCaisse(st, { nom: 'Wave', heureCloture: '22' });
+  assert.strictEqual(c.heureCloture, 22);
+});
+
 console.log('\n' + n + ' tests réussis');
