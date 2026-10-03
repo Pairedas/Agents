@@ -120,4 +120,16 @@ test('dépenses par mois', () => {
   assert.deepStrictEqual(L.parMois(st, T0).map(x => x.mois + '=' + x.montant), ['2026-07=1000', '2026-08=0', '2026-09=0', '2026-10=2000']);
 });
 
+test('vrac : tailles dans le nom, mètres, titres d’étape', () => {
+  const st = L.etatInitial(T0);
+  const r = L.analyserVrac(st, 'Électricité :\nCâble 3x1,5 : 30 m à 700\nCiment (paquet) : 1 à 5000\nPlomberie :\nRéductions 75/32 : 3 à 1000\nCoude 110 : 1 à 2000\nFil TH rouge, bleu, jaune-vert 1,5 : 150 m à 200');
+  assert.deepStrictEqual(r.map(x => [x.etape, x.libelle, x.quantite, x.unite, x.prixUnitaire, x.montant].join('|')), [
+    'electricite|Câble 3x1,5|30|m|700|21000',
+    'electricite|Ciment (paquet)|1||5000|5000',
+    'plomberie|Réductions 75/32|3||1000|3000',
+    'plomberie|Coude 110|1||2000|2000',
+    'plomberie|Fil TH rouge bleu jaune-vert 1,5|150|m|200|30000',
+  ]);
+});
+
 console.log('\n' + n + ' tests réussis');

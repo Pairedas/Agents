@@ -894,7 +894,7 @@ const L = (function () {
     while ((m = NOMBRE.exec(brut))) {
       const suf = (m[2] || '').trim().toLowerCase();
       const v = parseMontant(m[1] + (/^(fcfa|f)$/.test(suf) ? '' : suf));
-      if (v != null) nums.push({ v, i: m.index, fin: m.index + m[0].length, brut: m[1], monnaie: !!suf });
+      if (v != null) nums.push({ v, i: m.index, fin: m.index + m[0].length, brut: m[1], monnaie: !!suf, suf });
     }
     // Ligne sans nombre : un titre d'étape (« Maçonnerie : »)
     if (!nums.length) {
@@ -902,28 +902,34 @@ const L = (function () {
       const e = st.etapes.find(x => normal(x.nom) === n || normal(x.nom).startsWith(n) && n.length >= 4);
       return e ? { titre: true, etape: e.id } : { erreur: 'Pas de montant', texte: brut };
     }
-    let quantite = null, prixUnitaire = null, montant;
+    let quantite = null, prixUnitaire = null, montant, uniteQ;
+    const utilises = new Set(); // seuls ces nombres sont retirés du nom : « Coude 110 », « Câble 3x1,5 » gardent leur taille
     const entre = (a, b) => brut.slice(a.fin, b.i).toLowerCase();
     if (nums.length >= 2 && /(^|\s)(x|\*|×|à|a|fois|de)(\s|$)/.test(' ' + entre(nums[nums.length - 2], nums[nums.length - 1]) + ' ')) {
       const q = nums[nums.length - 2], p = nums[nums.length - 1];
-      quantite = Number(q.brut.replace(',', '.').replace(/[  ]/g, '')); prixUnitaire = p.v; montant = Math.round(quantite * p.v);
+      quantite = Number(q.brut.replace(',', '.').replace(/[ \u00a0]/g, '')); prixUnitaire = p.v; montant = Math.round(quantite * p.v);
+      utilises.add(q).add(p);
+      if (q.suf === 'm') uniteQ = 'm'; // « 30 m à 700 » : des mètres, pas des millions
     } else {
-      montant = nums[nums.length - 1].v;
-      if (nums.length >= 2 && !nums[0].monnaie && nums[0].v < 100000) quantite = nums[0].v;
+      montant = nums[nums.length - 1].v; utilises.add(nums[nums.length - 1]);
+      if (nums.length >= 2 && !nums[0].monnaie && nums[0].v < 100000) { quantite = nums[0].v; utilises.add(nums[0]); }
     }
     if (!montant) return { erreur: 'Montant à 0', texte: brut };
     let libelle = brut;
-    nums.slice().reverse().forEach(n => { libelle = libelle.slice(0, n.i) + ' ' + libelle.slice(n.fin); });
-    libelle = libelle.replace(/(^|\s)(x|\*|×|à|a|fois|de|pour|le|la|les|du|des|f|fcfa|francs?|sacs?|=)(?=\s|$)/gi, ' ').replace(/[:;=,\-–—•*]+/g, ' ').replace(/\s+/g, ' ').trim();
-    const UNITES = /(^|\s)(sacs?|tonnes?|voyages?|barres?|m2|m²|m3|m³|cartons?|pots?|seaux?|paquets?|pi[èe]ces?|bidons?|chargements?)(?=\s|$)/i;
-    const unite = quantite ? (brut.match(UNITES) || [])[2] : undefined;
+    nums.slice().reverse().forEach(n => { if (utilises.has(n)) libelle = libelle.slice(0, n.i) + ' ' + libelle.slice(n.fin); });
+    const SEP = '[:;=,\\-–—•*]+';
+    libelle = libelle.replace(/(^|\s)(x|\*|×|à|a|fois|de|pour|le|la|les|du|des|f|fcfa|francs?|=)(?=\s|$)/gi, ' ')
+      .replace(new RegExp('(^|\\s)' + SEP + '(?=\\s|$)', 'g'), ' ').replace(new RegExp(SEP + '(?=\\s|$)', 'g'), '').replace(/\s+/g, ' ').trim();
+    const UNITES = /(^|\s)(sacs?|tonnes?|voyages?|barres?|m|ml|m[èe]tres?|kgs?|litres?|m2|m²|m3|m³|cartons?|pots?|seaux?|paquets?|pi[èe]ces?|bidons?|chargements?)(?=\s|$)/i;
+    const unite = quantite ? uniteQ || (libelle.match(UNITES) || [])[2] : undefined;
     if (unite) { const sans = libelle.replace(UNITES, ' ').replace(/\s+/g, ' ').trim(); if (sans) libelle = sans; }
     if (!libelle) libelle = 'Dépense';
     libelle = libelle.charAt(0).toUpperCase() + libelle.slice(1);
+    // Un titre d'étape (« Plomberie : ») l'emporte sur la devinette par mot-clé
     const g = deviner(st, brut);
     return {
       texte: brut, libelle: libelle.slice(0, 80), montant, quantite, prixUnitaire, unite: quantite ? unite : undefined,
-      etape: g ? g.etape : (etapeCourante || 'divers'), type: g ? g.type : 'materiau', devine: !!g || !!etapeCourante,
+      etape: etapeCourante || (g ? g.etape : 'divers'), type: g ? g.type : 'materiau', devine: !!g || !!etapeCourante,
     };
   }
   function analyserVrac(st, texte) {
