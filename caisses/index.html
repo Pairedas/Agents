@@ -517,6 +517,12 @@ details.detail[open] summary .ic{transform:rotate(90deg)}
 @media (prefers-color-scheme:light){#toast-btn{color:#A5A8FF}}
 @media (prefers-color-scheme:dark){#toast-btn{color:var(--accent)}}
 
+/* ── Soldes de référence d'une caisse ── */
+.c-soldes{display:grid;grid-template-columns:1fr 1fr;gap:var(--s2);margin-top:var(--s3)}
+.c-soldes div{padding:var(--s2) var(--s3);border-radius:var(--r1);background:rgba(255,255,255,.14)}
+.c-soldes span{display:block;font-size:var(--t12);color:rgba(255,255,255,.82)}
+.c-soldes b{font-size:var(--t17);font-weight:650;color:#fff}
+
 /* ── Animations ── */
 @keyframes fadeIn{from{opacity:0}}
 @keyframes fadeOut{to{opacity:0}}
@@ -1666,6 +1672,7 @@ VUES.historique = () => {
     const s = L.soldeAttendu(S, f), v = L.variationJour(S, f);
     h += `<div class="c-hero" style="${gvars(f)}"><div class="solde-top"><span class="solde-ic">${ICO(icoCaisse(f))}</span><span class="no">${esc(c.numero || 'Pas de numéro')}</span></div>
       <div class="mt num sens">${grand(s)}</div><div class="l">Solde attendu maintenant${v ? ' · <span class="num">' + FS(v) + '</span> aujourd’hui' : ''}</div>
+      <div class="c-soldes"><div><span>Début de journée</span><b class="num sens">${F(s - v)}</b></div><div><span>Solde de départ</span><b class="num sens">${F(c.soldeDepart)}</b></div></div>
       <details class="detail"><summary>${ICO('chev-r')}Comment ce solde est calculé</summary>${tableDecomp(c, L.decomposition(S, f, null, Date.now() + 1))}</details></div>
       ${c.archivee ? '' : `<div class="duo" style="margin-top:var(--s3)"><button class="btn btn-pos" data-act="saisie" data-type="entree" data-caisse="${esc(f)}">${ICO('in')}Entrée</button><button class="btn btn-sec" data-act="saisie" data-type="sortie" data-caisse="${esc(f)}">${ICO('out')}Sortie</button></div>`}`;
   }
@@ -1675,7 +1682,8 @@ VUES.historique = () => {
   l.forEach(m => { const g = parJour[parJour.length - 1]; if (g && g.j === m.jour) g.l.push(m); else parJour.push({ j: m.jour, l: [m] }); });
   h += `<div style="margin-top:var(--s4)">` + parJour.map(g => {
     const net = g.l.reduce((s, m) => s + (f ? L.effet(m, f) : m.type === 'entree' ? m.montant : m.type === 'sortie' ? -m.montant : m.type === 'ajust' ? m.montant : 0), 0);
-    return `<div class="jour"><span>${esc(jourLib(g.j))}</span><span class="num">${net ? FS(net) : ''}</span></div><div class="card flush liste">${g.l.map(m => ligneMv(m, f)).join('')}</div>`;
+    const fin = f ? L.soldeAttendu(S, f, Math.min(L.debutJour(L.decalerJour(g.j, 1)) - 1, Date.now())) : null;
+    return `<div class="jour"><span>${esc(jourLib(g.j))}</span><span class="num">${net ? FS(net) : ''}${f ? `<small class="sens" style="display:block;font-weight:500;text-align:right">solde ${g.j === auj() ? 'actuel' : 'le soir'} ${F(fin)}</small>` : ''}</span></div><div class="card flush liste">${g.l.map(m => ligneMv(m, f)).join('')}</div>`;
   }).join('') + '</div>';
   if (tous.length > l.length) h += `<button class="btn btn-sec" style="margin-top:var(--s4)" data-act="histo-plus">Voir plus (${tous.length - l.length})</button>`;
   return h;
