@@ -1405,7 +1405,7 @@ FEUILLES.payer = f => {
 // Saisie en vrac
 FEUILLES.vrac = () => {
   const v = UI.vrac;
-  if (!v.lignes) return tete('Saisie en vrac') + `<p class="aide" style="margin:0 0 var(--s3)">Une dépense par ligne. L’appli devine l’étape (briques → Maçonnerie, carreaux → Carrelage…). Tu pourras corriger avant d’ajouter.</p>
+  if (!v.lignes) return tete('Saisie en vrac') + (v.duLien ? `<div class="alerte ${v.deja ? 'at' : 'ok'}" style="margin-bottom:var(--s3)"><span class="a-ic">${ICO(v.deja ? 'alert' : 'list')}</span><div class="a-b"><div class="a-t">${v.deja ? 'Liste déjà ajoutée le ' + esc(L.dateCourte(L.jourISO(v.deja))) : 'Liste prête à ajouter'}</div><div class="a-d">${v.deja ? 'L’ajouter encore créerait des doublons.' : 'Choisis la date des achats et le moyen de paiement, puis touche « Lire ma liste ».'}</div></div></div>` : '') + `<p class="aide" style="margin:0 0 var(--s3)">Une dépense par ligne. L’appli devine l’étape (briques → Maçonnerie, carreaux → Carrelage…). Tu pourras corriger avant d’ajouter.</p>
     <textarea class="field" id="v-texte" style="min-height:190px;font-size:var(--t15)" placeholder="Briques 300 000
 500 briques à 350
 Ciment 20 sacs x 5 500
@@ -1510,6 +1510,7 @@ ACT['v-retour'] = () => { UI.vrac.lignes = null; rendreFeuille(); };
 ACT['v-ok'] = () => {
   const v = UI.vrac; document.querySelectorAll('.v-etape').forEach(s => { v.lignes[Number(s.dataset.i)].etape = s.value; });
   const ajout = L.ajouterVrac(S, v.lignes, v.jour, v.moyen);
+  if (v.duLien) { PREFS.listesLiens = Object.assign({}, PREFS.listesLiens, { [empreinte(v.texte)]: Date.now() }); sauverPrefs(); }
   sauver(); fermer(); UI.vue = 'accueil'; rendre();
   toast(`${ajout.length} dépense${ajout.length > 1 ? 's' : ''} ajoutée${ajout.length > 1 ? 's' : ''} · ${F(ajout.reduce((s, x) => s + x.montant, 0))}`, () => { const ids = new Set(ajout.map(x => x.id)); S.depenses = S.depenses.filter(x => !ids.has(x.id)); sauver(); rendre(); toast('Annulé', null, 'info'); });
 };
@@ -1612,9 +1613,24 @@ document.addEventListener('keydown', e => {
   e.preventDefault(); const b = document.querySelector(`[data-act="${a}"]`); if (b) b.click();
 });
 
+/* ── Liste reçue par lien : …/chantier/#vrac=<texte en base64url> ──
+   Le texte reste dans le lien (après #), il n'est envoyé à aucun serveur. */
+function empreinte(t) { let h = 5381; const s = String(t).replace(/[\s\u00a0\u202f]+/g, ''); for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h.toString(36); }
+function listeDuLien() {
+  const m = location.hash.match(/^#vrac=([A-Za-z0-9_-]+)$/); if (!m) return;
+  history.replaceState(null, '', location.pathname + location.search);
+  let texte;
+  try { const b = atob(m[1].replace(/-/g, '+').replace(/_/g, '/')); texte = new TextDecoder().decode(Uint8Array.from(b, c => c.charCodeAt(0))); }
+  catch (e) { toast('Lien de liste illisible', null, 'err'); return; }
+  UI.vrac = { texte, jour: auj(), moyen: PREFS.moyen || 'especes', lignes: null, duLien: true, deja: (PREFS.listesLiens || {})[empreinte(texte)] || null };
+  ouvrir({ type: 'vrac', plein: true });
+}
+
 /* ── Démarrage ── */
 charger();
 rendre();
+listeDuLien();
+window.addEventListener('hashchange', listeDuLien);
 if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(() => {});
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('./sw.js').catch(() => {});
 </script>
