@@ -1495,6 +1495,9 @@ VUES.accueil = () => {
   const totSerie = series[0] ? series[0].map((_, i) => series.reduce((s, x) => s + x[i], 0)) : [0];
   const tot = totSerie[totSerie.length - 1];
   const varTot = act.reduce((s, c) => s + L.variationJour(S, c.id, now), 0);
+  // Les prêts et transferts entre caisses ne changent pas le total : on compte quand même les opérations du jour.
+  const mvsAuj = S.mouvements.filter(m => m.jour === L.jourISO(now)), nbAuj = mvsAuj.length;
+  const nbEntre = mvsAuj.filter(m => ['pret', 'remb', 'apport', 'salaire'].includes(m.type)).length;
   let h = `<header class="top"><div><div class="hello">${h0 < 5 || h0 >= 18 ? 'Bonsoir' : 'Bonjour'} Hervé</div><div class="date">${esc(dateLongue(now))}</div></div>
     <div class="top-actions"><button class="icon-btn" data-act="prive" aria-label="${PREFS.prive ? 'Afficher les montants' : 'Masquer les montants'}" aria-pressed="${!!PREFS.prive}">${ICO(PREFS.prive ? 'eye-off' : 'eye')}</button>
     <button class="icon-btn" data-act="vue" data-vue="plus" aria-label="Réglages">${ICO('sliders')}${bk.du ? '<span class="dot"></span>' : ''}</button></div></header>`;
@@ -1510,7 +1513,7 @@ VUES.accueil = () => {
   const up = varTot > 0, down = varTot < 0;
   h += `<section class="hero" aria-label="Patrimoine total"><div class="hero-top"><span>Patrimoine total</span><span>${act.length} caisses</span></div>
     <div class="hero-amt num sens">${grand(tot)}</div>
-    <div class="hero-var"><span class="vpill ${up ? 'up' : down ? 'down' : ''} num sens">${varTot ? ICO(up ? 'trend-up' : 'trend-down', 'xs') + FS(varTot) : 'Aucun mouvement'}</span><span>aujourd’hui</span></div>
+    <div class="hero-var"><span class="vpill ${up ? 'up' : down ? 'down' : ''} num sens">${varTot ? ICO(up ? 'trend-up' : 'trend-down', 'xs') + FS(varTot) : nbAuj ? 'Total inchangé' : 'Aucun mouvement'}</span><span>${nbAuj ? `<button data-act="point" data-jour="${auj()}" style="color:inherit;text-decoration:underline">${nbAuj} opération${nbAuj > 1 ? 's' : ''} aujourd’hui</button>${!varTot && nbEntre === nbAuj ? ' · entre caisses' : ''}` : 'aujourd’hui'}</span></div>
     ${totSerie.some(v => v !== 0) ? sparkline(totSerie, 340, 64, { couleur: '#A9ADFF', aire: true, ep: 2, point: true, cls: 'hero-spark' }) + '<div class="hero-pied"><span>il y a 7 jours</span><span>maintenant</span></div>' : '<div class="hero-pied" style="margin-top:var(--s4)"><span>La courbe des 7 derniers jours apparaîtra ici.</span></div>'}</section>`;
   // Cartes des caisses
   h += '<div class="soldes">' + act.map((c, i) => {
